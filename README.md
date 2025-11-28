@@ -37,7 +37,6 @@ openOracle is a decentralized oracle system on Base that allows users to submit 
 1. Clone the repository:
 ```bash
 git clone <repository-url>
-cd swapperTesting
 ```
 
 2. No npm/yarn installation required - all dependencies are loaded via CDN.
