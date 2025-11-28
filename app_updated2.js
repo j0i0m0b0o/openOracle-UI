@@ -143,6 +143,7 @@ const ERC20_ABI = [
 // Oracle ABI for events and state
 const ORACLE_ABI = [
     "function nextReportId() view returns (uint256)",
+    "function disputeAndSwap(uint256 reportId, address tokenToSwap, uint256 newAmount1, uint256 newAmount2, uint256 amt2Expected, bytes32 stateHash) external",
     "event InitialReportSubmitted(uint256 indexed reportId, address reporter, uint256 amount1, uint256 amount2, address indexed token1Address, address indexed token2Address, uint256 swapFee, uint256 protocolFee, uint256 settlementTime, uint256 disputeDelay, uint256 escalationHalt, bool timeType, address callbackContract, bytes4 callbackSelector, bool trackDisputes, uint256 callbackGasLimit, bytes32 stateHash, uint256 blockTimestamp)",
     "event ReportDisputed(uint256 indexed reportId, address disputer, uint256 newAmount1, uint256 newAmount2, address indexed token1Address, address indexed token2Address, uint256 swapFee, uint256 protocolFee, uint256 settlementTime, uint256 disputeDelay, uint256 escalationHalt, bool timeType, address callbackContract, bytes4 callbackSelector, bool trackDisputes, uint256 callbackGasLimit, bytes32 stateHash, uint256 blockTimestamp)",
     "event ReportSettled(uint256 indexed reportId, uint256 price, uint256 settlementTimestamp, uint256 blockTimestamp)"
@@ -165,6 +166,28 @@ const BATCHER_ABI = [
             {"name": "batchAmount2", "type": "uint256"}
         ],
         "name": "submitInitialReports",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "components": [
+                    {"name": "reportId", "type": "uint256"},
+                    {"name": "tokenToSwap", "type": "address"},
+                    {"name": "newAmount1", "type": "uint256"},
+                    {"name": "newAmount2", "type": "uint256"},
+                    {"name": "amt2Expected", "type": "uint256"},
+                    {"name": "stateHash", "type": "bytes32"}
+                ],
+                "name": "disputes",
+                "type": "tuple[]"
+            },
+            {"name": "batchAmount1", "type": "uint256"},
+            {"name": "batchAmount2", "type": "uint256"}
+        ],
+        "name": "disputeReports",
         "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function"
@@ -194,6 +217,7 @@ let countdownInterval = null; // Countdown timer for settlement
 let settlementTargetTime = null; // Target timestamp for countdown
 let liveUsdValues = null; // Store ETH amounts for live USD updates
 let currentDisputeInfo = null; // Store dispute info for dispute pane
+let currentDisputeSwapInfo = null; // Store calculated swap requirements for dispute submission
 
 // Initialize providers and start price feeds
 async function init() {
@@ -454,6 +478,9 @@ async function updateGasPrice() {
         currentGasPrice = feeData.gasPrice;
         document.getElementById('gasPrice').textContent =
             parseFloat(ethers.utils.formatUnits(currentGasPrice, 'gwei')).toFixed(4);
+
+        // Update breakeven volatility if report pane is open (gas affects net reward)
+        updateBreakevenVolatility();
     } catch (e) {
         console.error('Gas price error:', e);
     }
@@ -857,6 +884,13 @@ function updateDisputeRequirements() {
     pnlEl.textContent = `${immediatePnL >= 0 ? '+' : ''}${immediatePnL.toFixed(token2Info.decimals === 6 ? 2 : 6)} ${token2Info.symbol}`;
     pnlEl.className = `pane-value ${immediatePnL >= 0 ? 'positive' : 'negative'}`;
 
+    // Calculate and display breakeven volatility
+    // Breakeven = immediatePnL / amount2 * 100 (both in same token2 units)
+    const breakevenEl = document.getElementById('disputeBreakeven');
+    const breakevenPercent = amount2Value > 0 ? (immediatePnL / amount2Value) * 100 : 0;
+    breakevenEl.textContent = `±${Math.abs(breakevenPercent).toFixed(4)}%`;
+    breakevenEl.className = `pane-value ${breakevenPercent > 0.1 ? 'positive' : breakevenPercent > 0.01 ? '' : 'negative'}`;
+
     // Calculate USD values to recommend the cheaper option (if we have ETH price for known pairs)
     let token1SwapUsd = null;
     let token2SwapUsd = null;
@@ -900,27 +934,38 @@ function updateDisputeRequirements() {
     const token2SwapTransferStr = `${formatTokenAmount(token2SwapInToken1, token1Info.decimals, token1Info.symbol)} + ${formatTokenAmount(token2SwapInToken2, token2Info.decimals, token2Info.symbol)}`;
 
     // If we can calculate USD, use that; otherwise just show both options
+    let recommendToken1 = true;
     if (token1SwapUsd !== null && token2SwapUsd !== null) {
-        const recommendToken1 = token1SwapUsd <= token2SwapUsd;
+        recommendToken1 = token1SwapUsd <= token2SwapUsd;
         if (recommendToken1) {
-            recommendedSwapEl.textContent = `${token1Info.symbol} (~$${token1SwapUsd.toFixed(2)})`;
+            recommendedSwapEl.textContent = token1Info.symbol;
             transferInEl.innerHTML = token1SwapTransferStr;
         } else {
-            recommendedSwapEl.textContent = `${token2Info.symbol} (~$${token2SwapUsd.toFixed(2)})`;
+            recommendedSwapEl.textContent = token2Info.symbol;
             transferInEl.innerHTML = token2SwapTransferStr;
         }
     } else {
         // Unknown pair - just show token1 swap option
-        recommendedSwapEl.textContent = `${token1Info.symbol}`;
+        recommendedSwapEl.textContent = token1Info.symbol;
         transferInEl.innerHTML = token1SwapTransferStr;
     }
+
+    // Store swap info for submission
+    currentDisputeSwapInfo = {
+        newAmount1,
+        newAmount2,
+        tokenToSwap: recommendToken1 ? report.token1 : report.token2,
+        batchAmount1: recommendToken1 ? token1SwapInToken1 : token2SwapInToken1,
+        batchAmount2: recommendToken1 ? token1SwapInToken2 : token2SwapInToken2,
+        amt2Expected: report.currentAmount2
+    };
 
     document.getElementById('disputeRequirements').style.display = 'block';
 }
 
 async function submitDispute() {
-    if (!currentReport || !currentDisputeInfo) {
-        showError('No report loaded');
+    if (!currentReport || !currentDisputeInfo || !currentDisputeSwapInfo) {
+        showError('No report loaded or missing dispute info');
         return;
     }
 
@@ -930,7 +975,7 @@ async function submitDispute() {
     }
 
     if (!signer) {
-        const connected = await connectWallet();
+        const connected = await connectWalletManual();
         if (!connected) return;
     }
 
@@ -946,18 +991,103 @@ async function submitDispute() {
         const report = currentReport;
         const token1Info = report.token1Info;
         const token2Info = report.token2Info;
-        const disputeInfo = currentDisputeInfo;
+        const swapInfo = currentDisputeSwapInfo;
 
-        const newAmount1 = disputeInfo.newAmount1;
-        const newAmount2 = ethers.utils.parseUnits(amount2Value, token2Info.decimals);
+        console.log('=== Submit Dispute Debug ===');
+        console.log('reportId:', report.reportId.toString());
+        console.log('tokenToSwap:', swapInfo.tokenToSwap);
+        console.log('newAmount1:', swapInfo.newAmount1.toString());
+        console.log('newAmount2:', swapInfo.newAmount2.toString());
+        console.log('amt2Expected:', swapInfo.amt2Expected.toString());
+        console.log('batchAmount1:', swapInfo.batchAmount1.toString());
+        console.log('batchAmount2:', swapInfo.batchAmount2.toString());
+        console.log('stateHash:', report.stateHash);
 
-        // TODO: Implement actual dispute submission
-        // This would call the Oracle contract's dispute function
-        showError('Dispute submission not yet implemented - coming soon!');
+        // Check token balances
+        const token1Contract = new ethers.Contract(report.token1, ERC20_ABI, signer);
+        const token2Contract = new ethers.Contract(report.token2, ERC20_ABI, signer);
+
+        const [balance1, balance2] = await Promise.all([
+            token1Contract.balanceOf(userAddress),
+            token2Contract.balanceOf(userAddress)
+        ]);
+
+        console.log('User balance token1:', ethers.utils.formatUnits(balance1, token1Info.decimals), token1Info.symbol);
+        console.log('User balance token2:', ethers.utils.formatUnits(balance2, token2Info.decimals), token2Info.symbol);
+
+        if (balance1.lt(swapInfo.batchAmount1)) {
+            showError(`Insufficient ${token1Info.symbol} balance. Need ${ethers.utils.formatUnits(swapInfo.batchAmount1, token1Info.decimals)}, have ${ethers.utils.formatUnits(balance1, token1Info.decimals)}`);
+            return;
+        }
+
+        if (balance2.lt(swapInfo.batchAmount2)) {
+            showError(`Insufficient ${token2Info.symbol} balance. Need ${ethers.utils.formatUnits(swapInfo.batchAmount2, token2Info.decimals)}, have ${ethers.utils.formatUnits(balance2, token2Info.decimals)}`);
+            return;
+        }
+
+        // Check allowances and approve in parallel if needed
+        const [allowance1, allowance2] = await Promise.all([
+            token1Contract.allowance(userAddress, BATCHER_ADDRESS),
+            token2Contract.allowance(userAddress, BATCHER_ADDRESS)
+        ]);
+
+        const approvalPromises = [];
+        if (allowance1.lt(swapInfo.batchAmount1)) {
+            console.log('Approving token1...');
+            approvalPromises.push(
+                token1Contract.approve(BATCHER_ADDRESS, ethers.constants.MaxUint256)
+                    .then(tx => tx.wait())
+                    .then(() => console.log('Token1 approved'))
+            );
+        }
+        if (allowance2.lt(swapInfo.batchAmount2)) {
+            console.log('Approving token2...');
+            approvalPromises.push(
+                token2Contract.approve(BATCHER_ADDRESS, ethers.constants.MaxUint256)
+                    .then(tx => tx.wait())
+                    .then(() => console.log('Token2 approved'))
+            );
+        }
+
+        if (approvalPromises.length > 0) {
+            await Promise.all(approvalPromises);
+        }
+
+        // Submit via batcher
+        const batcher = new ethers.Contract(BATCHER_ADDRESS, BATCHER_ABI, signer);
+
+        const disputeData = [{
+            reportId: report.reportId,
+            tokenToSwap: swapInfo.tokenToSwap,
+            newAmount1: swapInfo.newAmount1,
+            newAmount2: swapInfo.newAmount2,
+            amt2Expected: swapInfo.amt2Expected,
+            stateHash: report.stateHash
+        }];
+
+        console.log('Calling batcher.disputeReports...');
+
+        const tx = await batcher.disputeReports(disputeData, swapInfo.batchAmount1, swapInfo.batchAmount2);
+        console.log('TX sent:', tx.hash);
+
+        const receipt = await tx.wait();
+        console.log('TX confirmed:', receipt);
+
+        // Hide pane - event listener will refresh the UI
+        const pane = document.getElementById('disputePane');
+        if (pane) pane.style.display = 'none';
+        console.log('Dispute submitted successfully!');
 
     } catch (e) {
         console.error('Dispute error:', e);
-        showError('Failed to dispute: ' + e.message);
+        let errorMsg = e.message;
+        if (e.error && e.error.message) {
+            errorMsg = e.error.message;
+        }
+        if (e.reason) {
+            errorMsg = e.reason;
+        }
+        showError('Failed to dispute: ' + errorMsg);
     }
 }
 
@@ -1312,7 +1442,7 @@ function renderReport(report, token1Info, token2Info) {
             <div id="breakevenRow" class="pane-row" style="display: none;">
                 <div class="pane-label">
                     Breakeven Volatility
-                    <span class="tooltip" data-tip="Maximum price movement (in either direction) over the ${settlementMins} min settlement period where you remain profitable. If price moves more than this %, a disputer could profitably correct your report and you'd lose money.">(?)</span>
+                    <span class="tooltip" data-tip="Maximum price movement (in either direction, at any time) over the ${settlementMins} min settlement period where you remain profitable. If price moves more than this %, a disputer could profitably correct your report and you'd lose money.">(?)</span>
                 </div>
                 <div class="pane-value" id="breakevenValue">--</div>
             </div>
@@ -1348,7 +1478,17 @@ function renderReport(report, token1Info, token2Info) {
                     <div class="pane-value" id="disputePnL">--</div>
                 </div>
                 <div class="pane-row">
-                    <div class="pane-label">Recommended Swap (token with less previous value)</div>
+                    <div class="pane-label">
+                        Breakeven Volatility
+                        <span class="tooltip" data-tip="Maximum price movement (in either direction, at any time) over the settlement period where you remain profitable. If price moves more than this %, anyone could profitably dispute you and you'd lose money.">(?)</span>
+                    </div>
+                    <div class="pane-value" id="disputeBreakeven">--</div>
+                </div>
+                <div class="pane-row">
+                    <div class="pane-label">
+                        Recommended Swap (token in current report with less value)
+                        <span class="tooltip" data-tip="Choosing the token with less value in the current report lets you earn the absolute difference in token values.">(?)</span>
+                    </div>
                     <div class="pane-value" id="recommendedSwap">--</div>
                 </div>
                 <div class="pane-row">
