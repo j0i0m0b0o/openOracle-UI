@@ -1033,20 +1033,20 @@ function updateDisputeRequirements() {
     const token2SwapInToken2 = newAmount2.add(currentAmount2).add(fee2);
 
     // Calculate immediate PnL assuming the entered amount2 is correct
-    // Your implied price: newAmount2 / newAmount1
-    // Current reporter's price: currentAmount2 / currentAmount1
-    // Token distance in token2 terms: |your_valuation - their_valuation| for the same token1 amount
+    // Profit is based on the CURRENT amounts you're taking from the old reporter,
+    // not the NEW amounts you're putting up
     const newAmount1Float = parseFloat(ethers.utils.formatUnits(newAmount1, token1Info.decimals));
     const newAmount2Float = amount2Value;
     const currentAmount1Float = parseFloat(ethers.utils.formatUnits(currentAmount1, token1Info.decimals));
     const currentAmount2Float = parseFloat(ethers.utils.formatUnits(currentAmount2, token2Info.decimals));
 
-    // Current reporter's implied valuation of newAmount1 in token2
-    const currentReporterPrice = currentAmount1Float > 0 ? currentAmount2Float / currentAmount1Float : 0;
-    const theirValuationOfNewAmount1 = currentReporterPrice * newAmount1Float;
+    // Your implied price vs their implied price
+    const yourPrice = newAmount1Float > 0 ? newAmount2Float / newAmount1Float : 0;
+    const theirPrice = currentAmount1Float > 0 ? currentAmount2Float / currentAmount1Float : 0;
+    const priceDiff = Math.abs(yourPrice - theirPrice);
 
-    // Token distance = difference between your valuation and theirs (in token2 terms)
-    const tokenDistanceToken2 = Math.abs(newAmount2Float - theirValuationOfNewAmount1);
+    // Token distance = price difference * currentAmount1 (what you're taking)
+    const tokenDistanceToken2 = priceDiff * currentAmount1Float;
 
     // Fee cost in token2 terms
     const fee2Float = parseFloat(ethers.utils.formatUnits(fee2, token2Info.decimals));
