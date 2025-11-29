@@ -1091,11 +1091,10 @@ function updateDisputeRequirements() {
     pnlEl.className = `pane-value ${immediatePnL >= 0 ? 'positive' : 'negative'}`;
 
     // Calculate and display breakeven volatility
-    // Breakeven = immediatePnL / (amount2 * multiplier/100) * 100
-    // Multiplier factors in because breakeven is relative to the escalated position
+    // Breakeven = immediatePnL / amount2 * 100
+    // How much can price move against you before your profit is wiped out
     const breakevenEl = document.getElementById('disputeBreakeven');
-    const multiplierFloat = report.multiplier / MULTIPLIER_PRECISION;
-    const breakevenPercent = amount2Value > 0 ? (immediatePnL / (amount2Value * multiplierFloat)) * 100 : 0;
+    const breakevenPercent = amount2Value > 0 ? (immediatePnL / amount2Value) * 100 : 0;
     breakevenEl.textContent = `±${Math.abs(breakevenPercent).toFixed(4)}%`;
     breakevenEl.className = `pane-value ${breakevenPercent > 0.1 ? 'positive' : breakevenPercent > 0.01 ? '' : 'negative'}`;
 
