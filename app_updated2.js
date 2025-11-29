@@ -941,8 +941,11 @@ function updateBreakevenVolatility() {
         wethAmount = amount2Value;
     }
 
-    // Breakeven volatility = fee / wethAmount × 100 (both in ETH, token-agnostic)
-    const breakevenPercent = (rewardEth / wethAmount) * 100;
+    // Breakeven volatility accounting for swap fees you receive if disputed
+    // B = (profit/position + fee_rate) / (1 + fee_rate)
+    const feeRate = report.feePercentage / 10000000; // swap fee rate
+    const simpleBreakeven = rewardEth / wethAmount;
+    const breakevenPercent = ((simpleBreakeven + feeRate) / (1 + feeRate)) * 100;
 
     breakevenValueEl.textContent = `±${breakevenPercent.toFixed(4)}%`;
     breakevenValueEl.className = `pane-value ${breakevenPercent > 0.1 ? 'positive' : breakevenPercent > 0.01 ? '' : 'negative'}`;
@@ -1091,10 +1094,12 @@ function updateDisputeRequirements() {
     pnlEl.className = `pane-value ${immediatePnL >= 0 ? 'positive' : 'negative'}`;
 
     // Calculate and display breakeven volatility
-    // Breakeven = immediatePnL / amount2 * 100
-    // How much can price move against you before your profit is wiped out
+    // Accounts for swap fees you receive if disputed
+    // B = (profit/position + fee_rate) / (1 + fee_rate)
     const breakevenEl = document.getElementById('disputeBreakeven');
-    const breakevenPercent = amount2Value > 0 ? (immediatePnL / amount2Value) * 100 : 0;
+    const feeRate = report.feePercentage / 10000000; // swap fee rate (protocol fee is burned, doesn't come to you)
+    const simpleBreakeven = amount2Value > 0 ? immediatePnL / amount2Value : 0;
+    const breakevenPercent = ((simpleBreakeven + feeRate) / (1 + feeRate)) * 100;
     breakevenEl.textContent = `±${Math.abs(breakevenPercent).toFixed(4)}%`;
     breakevenEl.className = `pane-value ${breakevenPercent > 0.1 ? 'positive' : breakevenPercent > 0.01 ? '' : 'negative'}`;
 
