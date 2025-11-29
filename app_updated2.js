@@ -283,8 +283,9 @@ const BATCHER_ABI = [
 const RPC_ENDPOINTS = [
     'https://mainnet.base.org',
     'https://base.drpc.org',
-    'https://1rpc.io/base',
-    'https://base.publicnode.com'
+    'https://base-rpc.publicnode.com',
+    'https://base.meowrpc.com',
+    'https://base.gateway.tenderly.co'
 ];
 
 // Global state
@@ -465,7 +466,7 @@ function stopCountdown() {
 function updateLiveUsdValues() {
     if (!liveUsdValues || !ethPrice) return;
 
-    const { swapFeeEth, protocolFeeEth, wethFloat, reportedPrice } = liveUsdValues;
+    const { swapFeeEth, protocolFeeEth, wethFloat, reportedPrice, settlerReward, callbackGasLimit } = liveUsdValues;
 
     // Recalculate token distance based on current ETH price
     const priceDiff = Math.abs(ethPrice - reportedPrice);
@@ -478,7 +479,19 @@ function updateLiveUsdValues() {
     const disputeGasCost = calculateDisputeGasCost();
     const disputeGasCostUsd = disputeGasCost ? parseFloat(ethers.utils.formatUnits(disputeGasCost, 18)) * ethPrice : 0;
 
-    const netPnLUSD = tokenDistanceUSD - swapFeeUSD - protocolFeeUSD - disputeGasCostUsd;
+    // Include settle cost if disputer wins (they become reporter and may need to self-settle)
+    let settleCostUsd = 0;
+    if (settlerReward && callbackGasLimit !== undefined) {
+        const settleGasCost = calculateSettleGasCost(callbackGasLimit);
+        if (settleGasCost) {
+            const netSettlerReward = settlerReward.sub(settleGasCost);
+            if (netSettlerReward.lt(0)) {
+                settleCostUsd = parseFloat(ethers.utils.formatUnits(netSettlerReward.abs(), 18)) * ethPrice;
+            }
+        }
+    }
+
+    const netPnLUSD = tokenDistanceUSD - swapFeeUSD - protocolFeeUSD - disputeGasCostUsd - settleCostUsd;
 
     const distanceEl = document.getElementById('liveTokenDistance');
     const swapFeeEl = document.getElementById('liveSwapFee');
@@ -515,6 +528,17 @@ async function refreshCurrentReport() {
 
         const report = data[0];
 
+        // Only re-render if data actually changed
+        if (currentReport &&
+            report.currentAmount1.eq(currentReport.currentAmount1) &&
+            report.currentAmount2.eq(currentReport.currentAmount2) &&
+            report.currentReporter === currentReport.currentReporter &&
+            report.isDistributed === currentReport.isDistributed &&
+            report.stateHash === currentReport.stateHash) {
+            console.log(`Refresh at block ${raceResult.blockNum}: no changes`);
+            return;
+        }
+
         // Get token info
         const token1Info = await getTokenInfo(report.token1);
         const token2Info = await getTokenInfo(report.token2);
@@ -525,35 +549,60 @@ async function refreshCurrentReport() {
         // Re-render
         renderReport(report, token1Info, token2Info);
 
-        console.log('Report refreshed');
+        console.log(`Report refreshed from block ${raceResult.blockNum}`);
     } catch (e) {
         console.error('Error refreshing report:', e);
     }
 }
 
 // Race multiple providers to get fastest response
-async function raceGetData(reportId) {
+// onFresherData callback is called if a later response has a higher block number
+async function raceGetData(reportId, onFresherData = null) {
     const dataProviderAbi = DATA_PROVIDER_ABI;
+    let highestBlock = 0;
+    let firstResolved = false;
+    let resolveFirst;
 
-    const racePromises = providers.map((p, i) => {
+    const firstPromise = new Promise((resolve, reject) => {
+        resolveFirst = resolve;
+        // Timeout after 10 seconds if no RPC responds
+        setTimeout(() => reject(new Error('All RPCs timed out')), 10000);
+    });
+
+    providers.forEach((p, i) => {
         const contract = new ethers.Contract(DATA_PROVIDER_ADDRESS, dataProviderAbi, p);
         const startTime = performance.now();
 
-        // Use explicit signature for overloaded function
-        return contract['getData(uint256)'](reportId)
-            .then(result => {
+        // Fetch both data and block number together
+        Promise.all([
+            contract['getData(uint256)'](reportId),
+            p.getBlockNumber()
+        ])
+            .then(([result, blockNum]) => {
                 const elapsed = (performance.now() - startTime).toFixed(0);
-                console.log(`RPC ${i} (${RPC_ENDPOINTS[i].split('//')[1].split('/')[0]}) responded in ${elapsed}ms`);
-                return { result, rpc: RPC_ENDPOINTS[i], elapsed };
+                const rpcName = RPC_ENDPOINTS[i].split('//')[1].split('/')[0];
+                console.log(`RPC ${i} (${rpcName}) responded in ${elapsed}ms at block ${blockNum}`);
+
+                const response = { result, rpc: RPC_ENDPOINTS[i], elapsed, blockNum };
+
+                if (!firstResolved) {
+                    // First response - resolve immediately and set baseline
+                    firstResolved = true;
+                    highestBlock = blockNum;
+                    resolveFirst(response);
+                } else if (blockNum > highestBlock && onFresherData) {
+                    // Later response with higher block - call callback
+                    console.log(`Fresher data from ${rpcName}: block ${blockNum} > ${highestBlock}`);
+                    highestBlock = blockNum;
+                    onFresherData(response);
+                }
             })
             .catch(err => {
                 console.warn(`RPC ${i} failed:`, err.message);
-                throw err;
             });
     });
 
-    // Race all providers, return first successful response
-    return Promise.any(racePromises);
+    return firstPromise;
 }
 
 let gasProviderIndex = 0;
@@ -1005,10 +1054,10 @@ function updateDisputeRequirements() {
     // Dispute gas cost in token2 terms
     const disputeGasCost = calculateDisputeGasCost();
     let disputeGasCostToken2 = 0;
+    const isToken2Usdc = token2Info.address.toLowerCase() === USDC_ADDRESS.toLowerCase();
+    const isToken2Weth = token2Info.address.toLowerCase() === WETH_ADDRESS.toLowerCase();
     if (disputeGasCost && ethPrice) {
         const disputeGasCostEth = parseFloat(ethers.utils.formatUnits(disputeGasCost, 18));
-        const isToken2Usdc = token2Info.address.toLowerCase() === USDC_ADDRESS.toLowerCase();
-        const isToken2Weth = token2Info.address.toLowerCase() === WETH_ADDRESS.toLowerCase();
         if (isToken2Usdc) {
             disputeGasCostToken2 = disputeGasCostEth * ethPrice;
         } else if (isToken2Weth) {
@@ -1016,8 +1065,25 @@ function updateDisputeRequirements() {
         }
     }
 
-    // Immediate PnL = token distance - fees - gas cost (all in token2)
-    const immediatePnL = tokenDistanceToken2 - fee2Float - disputeGasCostToken2;
+    // If disputer wins, they become reporter and may need to self-settle
+    // Account for settle cost if settler reward doesn't cover it
+    let settleCostToken2 = 0;
+    const settleGasCost = calculateSettleGasCost(report.callbackGasLimit);
+    if (settleGasCost) {
+        const netSettlerReward = report.settlerReward.sub(settleGasCost);
+        if (netSettlerReward.lt(0)) {
+            // Disputer will have to self-settle, eating the loss
+            const settleLossEth = parseFloat(ethers.utils.formatUnits(netSettlerReward.abs(), 18));
+            if (isToken2Usdc && ethPrice) {
+                settleCostToken2 = settleLossEth * ethPrice;
+            } else if (isToken2Weth) {
+                settleCostToken2 = settleLossEth;
+            }
+        }
+    }
+
+    // Immediate PnL = token distance - fees - dispute gas - settle cost (all in token2)
+    const immediatePnL = tokenDistanceToken2 - fee2Float - disputeGasCostToken2 - settleCostToken2;
 
     // Display PnL
     const pnlEl = document.getElementById('disputePnL');
@@ -1038,7 +1104,7 @@ function updateDisputeRequirements() {
     let token2SwapUsd = null;
 
     const isToken1Weth = token1Info.address.toLowerCase() === WETH_ADDRESS.toLowerCase();
-    const isToken2Weth = token2Info.address.toLowerCase() === WETH_ADDRESS.toLowerCase();
+    // isToken2Weth already declared above
 
     // Calculate total cost for each swap type
     const token1SwapInToken1Float = parseFloat(ethers.utils.formatUnits(token1SwapInToken1, token1Info.decimals));
@@ -1493,9 +1559,39 @@ async function searchReport() {
 
     try {
         const startTime = performance.now();
-        const raceResult = await raceGetData(reportId);
+
+        // Callback for when fresher data arrives from a slower but more up-to-date RPC
+        const onFresherData = async (fresherResult) => {
+            const data = fresherResult.result;
+            if (!data || data.length === 0) return;
+
+            const report = data[0];
+
+            // Only re-render if data actually changed (compare key fields)
+            if (currentReport &&
+                report.currentAmount1.eq(currentReport.currentAmount1) &&
+                report.currentAmount2.eq(currentReport.currentAmount2) &&
+                report.currentReporter === currentReport.currentReporter &&
+                report.isDistributed === currentReport.isDistributed &&
+                report.stateHash === currentReport.stateHash) {
+                console.log(`Block ${fresherResult.blockNum} has same data, skipping re-render`);
+                return;
+            }
+
+            const token1Info = await getTokenInfo(report.token1);
+            const token2Info = await getTokenInfo(report.token2);
+
+            // Update global state
+            currentReport = { ...report, token1Info, token2Info };
+
+            // Re-render with fresher data
+            console.log(`Re-rendering with fresher data from block ${fresherResult.blockNum}`);
+            renderReport(report, token1Info, token2Info);
+        };
+
+        const raceResult = await raceGetData(reportId, onFresherData);
         const totalElapsed = (performance.now() - startTime).toFixed(0);
-        console.log(`Winner: ${raceResult.rpc.split('//')[1].split('/')[0]} in ${raceResult.elapsed}ms (total: ${totalElapsed}ms)`);
+        console.log(`Winner: ${raceResult.rpc.split('//')[1].split('/')[0]} in ${raceResult.elapsed}ms at block ${raceResult.blockNum} (total: ${totalElapsed}ms)`);
 
         const data = raceResult.result;
 
@@ -1855,7 +1951,9 @@ function renderReport(report, token1Info, token2Info) {
                     swapFeeEth: disputeInfo.swapFeeEth,
                     protocolFeeEth: disputeInfo.protocolFeeEth,
                     wethFloat: disputeInfo.wethFloat,
-                    reportedPrice: disputeInfo.reportedPrice
+                    reportedPrice: disputeInfo.reportedPrice,
+                    settlerReward: report.settlerReward,
+                    callbackGasLimit: report.callbackGasLimit
                 };
 
                 html += `
@@ -2017,7 +2115,19 @@ function calculateDisputeInfo(report, token1Info, token2Info) {
         const disputeGasCost = calculateDisputeGasCost();
         const disputeGasCostUsd = disputeGasCost ? parseFloat(ethers.utils.formatUnits(disputeGasCost, 18)) * ethPrice : 0;
 
-        netPnLUSD = tokenDistanceUSD - swapFeeUSD - protocolFeeUSD - disputeGasCostUsd;
+        // Include settle cost if disputer wins (they become reporter and may need to self-settle)
+        let settleCostUsd = 0;
+        if (report) {
+            const settleGasCost = calculateSettleGasCost(report.callbackGasLimit);
+            if (settleGasCost && report.settlerReward) {
+                const netSettlerReward = report.settlerReward.sub(settleGasCost);
+                if (netSettlerReward.lt(0)) {
+                    settleCostUsd = parseFloat(ethers.utils.formatUnits(netSettlerReward.abs(), 18)) * ethPrice;
+                }
+            }
+        }
+
+        netPnLUSD = tokenDistanceUSD - swapFeeUSD - protocolFeeUSD - disputeGasCostUsd - settleCostUsd;
     }
 
     return {
@@ -2279,7 +2389,17 @@ async function loadOverview(autoDetect = false) {
                     const disputeGasCost = calculateDisputeGasCost();
                     const disputeGasCostUsd = disputeGasCost ? parseFloat(ethers.utils.formatUnits(disputeGasCost, 18)) * ethPrice : 0;
 
-                    valueUsd = tokenDistanceUsd - swapFeeUsd - burnFeeUsd - disputeGasCostUsd;
+                    // Settle cost if disputer wins (they become reporter and may need to self-settle)
+                    let settleCostUsd = 0;
+                    const settleGasCost = calculateSettleGasCost(report.callbackGasLimit);
+                    if (settleGasCost && report.settlerReward) {
+                        const netSettlerReward = report.settlerReward.sub(settleGasCost);
+                        if (netSettlerReward.lt(0)) {
+                            settleCostUsd = parseFloat(ethers.utils.formatUnits(netSettlerReward.abs(), 18)) * ethPrice;
+                        }
+                    }
+
+                    valueUsd = tokenDistanceUsd - swapFeeUsd - burnFeeUsd - disputeGasCostUsd - settleCostUsd;
                 } else {
                     valueUsd = 0; // Unknown pair
                 }
