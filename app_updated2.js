@@ -1,7 +1,7 @@
 // Contract addresses on Base
-const DATA_PROVIDER_ADDRESS = '0xa7FD2D2d35dF86437B26dCb41111F59787bD4192';
+const DATA_PROVIDER_ADDRESS = '0xB1a55abBc8537e96e59119EAeC105b5AA9A101E0'; // V3 with protocolFeeRecipient
 const ORACLE_ADDRESS = '0xdcaa5082564F395819dC2F215716Fe901a1d0A23';
-const BATCHER_ADDRESS = '0x8FAF4b5E99fF6804BD259b2C44629A537a74a3ba';
+const BATCHER_ADDRESS = '0xFe5c89448E741D1542afFBf34b9Cf2a3789B82F9'; // Safe batcher
 const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
 const USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const BASE_CHAIN_ID = '0x2105'; // 8453
@@ -13,6 +13,7 @@ const MULTIPLIER_PRECISION = 100;
 const MAX_CALLBACK_GAS = 2000000;
 const MAX_CALLBACK_GAS_REPORT = 10000000; // 10M - don't allow reporting/disputing above this
 const MAX_SETTLEMENT_TIME = 86400; // 1 day in seconds
+const MAX_SETTLEMENT_BLOCKS = 43200; // ~1 day in blocks
 
 // Data Provider ABI (getData function - single and range)
 const DATA_PROVIDER_ABI = [
@@ -50,7 +51,8 @@ const DATA_PROVIDER_ABI = [
                 {"name": "callbackGasLimit", "type": "uint32"},
                 {"name": "callbackSelector", "type": "bytes4"},
                 {"name": "trackDisputes", "type": "bool"},
-                {"name": "keepFee", "type": "bool"}
+                {"name": "keepFee", "type": "bool"},
+                {"name": "protocolFeeRecipient", "type": "address"}
             ],
             "name": "",
             "type": "tuple[]"
@@ -92,7 +94,8 @@ const DATA_PROVIDER_ABI = [
                 {"name": "callbackGasLimit", "type": "uint32"},
                 {"name": "callbackSelector", "type": "bytes4"},
                 {"name": "trackDisputes", "type": "bool"},
-                {"name": "keepFee", "type": "bool"}
+                {"name": "keepFee", "type": "bool"},
+                {"name": "protocolFeeRecipient", "type": "address"}
             ],
             "name": "",
             "type": "tuple[]"
@@ -143,10 +146,32 @@ const ERC20_ABI = [
 // Oracle ABI for events and state
 const ORACLE_ABI = [
     "function nextReportId() view returns (uint256)",
+    "function extraData(uint256 reportId) view returns (bytes32 stateHash, address callbackContract, uint32 numReports, uint32 callbackGasLimit, bytes4 callbackSelector, address protocolFeeRecipient, bool trackDisputes, bool keepFee)",
     "function disputeAndSwap(uint256 reportId, address tokenToSwap, uint256 newAmount1, uint256 newAmount2, uint256 amt2Expected, bytes32 stateHash) external",
     "event InitialReportSubmitted(uint256 indexed reportId, address reporter, uint256 amount1, uint256 amount2, address indexed token1Address, address indexed token2Address, uint256 swapFee, uint256 protocolFee, uint256 settlementTime, uint256 disputeDelay, uint256 escalationHalt, bool timeType, address callbackContract, bytes4 callbackSelector, bool trackDisputes, uint256 callbackGasLimit, bytes32 stateHash, uint256 blockTimestamp)",
     "event ReportDisputed(uint256 indexed reportId, address disputer, uint256 newAmount1, uint256 newAmount2, address indexed token1Address, address indexed token2Address, uint256 swapFee, uint256 protocolFee, uint256 settlementTime, uint256 disputeDelay, uint256 escalationHalt, bool timeType, address callbackContract, bytes4 callbackSelector, bool trackDisputes, uint256 callbackGasLimit, bytes32 stateHash, uint256 blockTimestamp)",
     "event ReportSettled(uint256 indexed reportId, uint256 price, uint256 settlementTimestamp, uint256 blockTimestamp)"
+];
+
+// oracleParams struct for safe batcher validation
+const ORACLE_PARAMS_TYPE = [
+    {"name": "exactToken1Report", "type": "uint256"},
+    {"name": "escalationHalt", "type": "uint256"},
+    {"name": "fee", "type": "uint256"},
+    {"name": "settlerReward", "type": "uint256"},
+    {"name": "token1", "type": "address"},
+    {"name": "settlementTime", "type": "uint48"},
+    {"name": "token2", "type": "address"},
+    {"name": "timeType", "type": "bool"},
+    {"name": "feePercentage", "type": "uint24"},
+    {"name": "protocolFee", "type": "uint24"},
+    {"name": "multiplier", "type": "uint16"},
+    {"name": "disputeDelay", "type": "uint24"},
+    {"name": "currentAmount1", "type": "uint256"},
+    {"name": "currentAmount2", "type": "uint256"},
+    {"name": "callbackGasLimit", "type": "uint32"},
+    {"name": "protocolFeeRecipient", "type": "address"},
+    {"name": "keepFee", "type": "bool"}
 ];
 
 const BATCHER_ABI = [
@@ -175,6 +200,35 @@ const BATCHER_ABI = [
             {
                 "components": [
                     {"name": "reportId", "type": "uint256"},
+                    {"name": "amount1", "type": "uint256"},
+                    {"name": "amount2", "type": "uint256"},
+                    {"name": "stateHash", "type": "bytes32"}
+                ],
+                "name": "reports",
+                "type": "tuple[]"
+            },
+            {
+                "components": ORACLE_PARAMS_TYPE,
+                "name": "p",
+                "type": "tuple"
+            },
+            {"name": "batchAmount1", "type": "uint256"},
+            {"name": "batchAmount2", "type": "uint256"},
+            {"name": "timestamp", "type": "uint256"},
+            {"name": "blockNumber", "type": "uint256"},
+            {"name": "timestampBound", "type": "uint256"},
+            {"name": "blockNumberBound", "type": "uint256"}
+        ],
+        "name": "submitInitialReportSafe",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "components": [
+                    {"name": "reportId", "type": "uint256"},
                     {"name": "tokenToSwap", "type": "address"},
                     {"name": "newAmount1", "type": "uint256"},
                     {"name": "newAmount2", "type": "uint256"},
@@ -188,6 +242,37 @@ const BATCHER_ABI = [
             {"name": "batchAmount2", "type": "uint256"}
         ],
         "name": "disputeReports",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "components": [
+                    {"name": "reportId", "type": "uint256"},
+                    {"name": "tokenToSwap", "type": "address"},
+                    {"name": "newAmount1", "type": "uint256"},
+                    {"name": "newAmount2", "type": "uint256"},
+                    {"name": "amt2Expected", "type": "uint256"},
+                    {"name": "stateHash", "type": "bytes32"}
+                ],
+                "name": "disputes",
+                "type": "tuple[]"
+            },
+            {
+                "components": ORACLE_PARAMS_TYPE,
+                "name": "p",
+                "type": "tuple"
+            },
+            {"name": "batchAmount1", "type": "uint256"},
+            {"name": "batchAmount2", "type": "uint256"},
+            {"name": "timestamp", "type": "uint256"},
+            {"name": "blockNumber", "type": "uint256"},
+            {"name": "timestampBound", "type": "uint256"},
+            {"name": "blockNumberBound", "type": "uint256"}
+        ],
+        "name": "disputeReportSafe",
         "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function"
@@ -388,7 +473,12 @@ function updateLiveUsdValues() {
 
     const swapFeeUSD = swapFeeEth * ethPrice;
     const protocolFeeUSD = protocolFeeEth * ethPrice;
-    const netPnLUSD = tokenDistanceUSD - swapFeeUSD - protocolFeeUSD;
+
+    // Include dispute gas cost
+    const disputeGasCost = calculateDisputeGasCost();
+    const disputeGasCostUsd = disputeGasCost ? parseFloat(ethers.utils.formatUnits(disputeGasCost, 18)) * ethPrice : 0;
+
+    const netPnLUSD = tokenDistanceUSD - swapFeeUSD - protocolFeeUSD - disputeGasCostUsd;
 
     const distanceEl = document.getElementById('liveTokenDistance');
     const swapFeeEl = document.getElementById('liveSwapFee');
@@ -575,7 +665,31 @@ async function connectWalletManual() {
 
         const accounts = await window.ethereum.request({ method: 'eth_accounts' });
         userAddress = accounts[0];
+        window.userAddress = userAddress; // For modal access
 
+        // Check if user has accepted risk disclaimer for this wallet
+        const hasAccepted = localStorage.getItem(`oracleRiskAccepted_${userAddress.toLowerCase()}`);
+        if (!hasAccepted) {
+            // Show risk modal and wait for user decision
+            document.getElementById('riskModal').style.display = 'flex';
+            document.getElementById('riskCheckbox').checked = false;
+            document.getElementById('acceptRiskBtn').disabled = true;
+            document.getElementById('acceptRiskBtn').style.opacity = '0.5';
+            return false; // Connection not complete yet
+        }
+
+        // User already accepted, finish connection
+        return await finishWalletConnection();
+    } catch (e) {
+        console.error('Wallet connection error:', e);
+        showError('Failed to connect wallet: ' + e.message);
+        return false;
+    }
+}
+
+// Finish wallet connection after risk acceptance
+async function finishWalletConnection() {
+    try {
         await ensureBaseChain();
 
         const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
@@ -590,6 +704,9 @@ async function connectWalletManual() {
         return false;
     }
 }
+
+// Make finishWalletConnection available to modal
+window.finishWalletConnection = finishWalletConnection;
 
 // Ensure we're on Base chain
 async function ensureBaseChain() {
@@ -622,10 +739,14 @@ async function ensureBaseChain() {
 // Disconnect wallet
 async function disconnectWallet() {
     userAddress = null;
+    window.userAddress = null;
     signer = null;
     updateWalletUI();
     console.log('Wallet disconnected');
 }
+
+// Make disconnectWallet available to modal
+window.disconnectWallet = disconnectWallet;
 
 // Update wallet UI
 function updateWalletUI() {
@@ -740,12 +861,17 @@ function updateBreakevenVolatility() {
 
     // Calculate net reward (same logic as in renderReport)
     const settleGasCost = calculateSettleGasCost(report.callbackGasLimit);
+    const submitGasCost = calculateInitialReportGasCost();
     const netSettlerReward = settleGasCost ? report.settlerReward.sub(settleGasCost) : null;
     let netReporterReward;
     if (netSettlerReward && netSettlerReward.lt(0)) {
         netReporterReward = report.fee.add(netSettlerReward);
     } else {
         netReporterReward = report.fee;
+    }
+    // Subtract submission gas cost
+    if (submitGasCost) {
+        netReporterReward = netReporterReward.sub(submitGasCost);
     }
 
     // Reward is in ETH, WETH amount is in ETH - same units, simple ratio
@@ -876,8 +1002,22 @@ function updateDisputeRequirements() {
     // Fee cost in token2 terms
     const fee2Float = parseFloat(ethers.utils.formatUnits(fee2, token2Info.decimals));
 
-    // Immediate PnL = token distance - fees (all in token2)
-    const immediatePnL = tokenDistanceToken2 - fee2Float;
+    // Dispute gas cost in token2 terms
+    const disputeGasCost = calculateDisputeGasCost();
+    let disputeGasCostToken2 = 0;
+    if (disputeGasCost && ethPrice) {
+        const disputeGasCostEth = parseFloat(ethers.utils.formatUnits(disputeGasCost, 18));
+        const isToken2Usdc = token2Info.address.toLowerCase() === USDC_ADDRESS.toLowerCase();
+        const isToken2Weth = token2Info.address.toLowerCase() === WETH_ADDRESS.toLowerCase();
+        if (isToken2Usdc) {
+            disputeGasCostToken2 = disputeGasCostEth * ethPrice;
+        } else if (isToken2Weth) {
+            disputeGasCostToken2 = disputeGasCostEth;
+        }
+    }
+
+    // Immediate PnL = token distance - fees - gas cost (all in token2)
+    const immediatePnL = tokenDistanceToken2 - fee2Float - disputeGasCostToken2;
 
     // Display PnL
     const pnlEl = document.getElementById('disputePnL');
@@ -885,9 +1025,11 @@ function updateDisputeRequirements() {
     pnlEl.className = `pane-value ${immediatePnL >= 0 ? 'positive' : 'negative'}`;
 
     // Calculate and display breakeven volatility
-    // Breakeven = immediatePnL / amount2 * 100 (both in same token2 units)
+    // Breakeven = immediatePnL / (amount2 * multiplier/100) * 100
+    // Multiplier factors in because breakeven is relative to the escalated position
     const breakevenEl = document.getElementById('disputeBreakeven');
-    const breakevenPercent = amount2Value > 0 ? (immediatePnL / amount2Value) * 100 : 0;
+    const multiplierFloat = report.multiplier / MULTIPLIER_PRECISION;
+    const breakevenPercent = amount2Value > 0 ? (immediatePnL / (amount2Value * multiplierFloat)) * 100 : 0;
     breakevenEl.textContent = `±${Math.abs(breakevenPercent).toFixed(4)}%`;
     breakevenEl.className = `pane-value ${breakevenPercent > 0.1 ? 'positive' : breakevenPercent > 0.01 ? '' : 'negative'}`;
 
@@ -963,6 +1105,48 @@ function updateDisputeRequirements() {
     document.getElementById('disputeRequirements').style.display = 'block';
 }
 
+function isSettlementTimeValid(report) {
+    if (report.timeType) {
+        return report.settlementTime <= MAX_SETTLEMENT_TIME;
+    } else {
+        return report.settlementTime <= MAX_SETTLEMENT_BLOCKS;
+    }
+}
+
+// Build oracleParams struct for safe batcher validation
+function buildOracleParams(report) {
+    return {
+        exactToken1Report: report.exactToken1Report,
+        escalationHalt: report.escalationHalt,
+        fee: report.fee,
+        settlerReward: report.settlerReward,
+        token1: report.token1,
+        settlementTime: report.settlementTime,
+        token2: report.token2,
+        timeType: report.timeType,
+        feePercentage: report.feePercentage,
+        protocolFee: report.protocolFee,
+        multiplier: report.multiplier,
+        disputeDelay: report.disputeDelay,
+        currentAmount1: report.currentAmount1,
+        currentAmount2: report.currentAmount2,
+        callbackGasLimit: report.callbackGasLimit,
+        protocolFeeRecipient: report.protocolFeeRecipient,
+        keepFee: report.keepFee
+    };
+}
+
+// Get fresh block info for safe batcher time bounds
+async function getFreshBlockInfo() {
+    const block = await providers[0].getBlock('latest');
+    return {
+        timestamp: block.timestamp,
+        blockNumber: block.number,
+        timestampBound: 60,  // +60 seconds
+        blockNumberBound: 30  // +30 blocks
+    };
+}
+
 async function submitDispute() {
     if (!currentReport || !currentDisputeInfo || !currentDisputeSwapInfo) {
         showError('No report loaded or missing dispute info');
@@ -971,6 +1155,12 @@ async function submitDispute() {
 
     if (currentReport.callbackGasLimit > MAX_CALLBACK_GAS_REPORT) {
         showError(`Cannot dispute: callbackGasLimit exceeds 10M limit`);
+        return;
+    }
+
+    if (!isSettlementTimeValid(currentReport)) {
+        const limit = currentReport.timeType ? `${MAX_SETTLEMENT_TIME} seconds` : `${MAX_SETTLEMENT_BLOCKS} blocks`;
+        showError(`Cannot dispute: settlementTime exceeds ${limit}`);
         return;
     }
 
@@ -1053,7 +1243,15 @@ async function submitDispute() {
             await Promise.all(approvalPromises);
         }
 
-        // Submit via batcher
+        // Build oracleParams and get fresh block info for safe batcher
+        console.log('Building oracleParams and getting fresh block info...');
+        const oracleParams = buildOracleParams(report);
+        const blockInfo = await getFreshBlockInfo();
+
+        console.log('oracleParams:', oracleParams);
+        console.log('blockInfo:', blockInfo);
+
+        // Submit via safe batcher
         const batcher = new ethers.Contract(BATCHER_ADDRESS, BATCHER_ABI, signer);
 
         const disputeData = [{
@@ -1065,9 +1263,18 @@ async function submitDispute() {
             stateHash: report.stateHash
         }];
 
-        console.log('Calling batcher.disputeReports...');
+        console.log('Calling batcher.disputeReportSafe...');
 
-        const tx = await batcher.disputeReports(disputeData, swapInfo.batchAmount1, swapInfo.batchAmount2);
+        const tx = await batcher.disputeReportSafe(
+            disputeData,
+            oracleParams,
+            swapInfo.batchAmount1,
+            swapInfo.batchAmount2,
+            blockInfo.timestamp,
+            blockInfo.blockNumber,
+            blockInfo.timestampBound,
+            blockInfo.blockNumberBound
+        );
         console.log('TX sent:', tx.hash);
 
         const receipt = await tx.wait();
@@ -1100,6 +1307,13 @@ async function submitInitialReport() {
     // Block if callbackGasLimit is too high
     if (currentReport.callbackGasLimit > MAX_CALLBACK_GAS_REPORT) {
         showError(`Cannot report: callbackGasLimit (${currentReport.callbackGasLimit.toLocaleString()}) exceeds 10M limit`);
+        return;
+    }
+
+    // Block if settlementTime is too high
+    if (!isSettlementTimeValid(currentReport)) {
+        const limit = currentReport.timeType ? `${MAX_SETTLEMENT_TIME} seconds` : `${MAX_SETTLEMENT_BLOCKS} blocks`;
+        showError(`Cannot report: settlementTime exceeds ${limit}`);
         return;
     }
 
@@ -1188,7 +1402,15 @@ async function submitInitialReport() {
             await Promise.all(approvalPromises);
         }
 
-        // Submit via batcher
+        // Build oracleParams and get fresh block info for safe batcher
+        console.log('Building oracleParams and getting fresh block info...');
+        const oracleParams = buildOracleParams(report);
+        const blockInfo = await getFreshBlockInfo();
+
+        console.log('oracleParams:', oracleParams);
+        console.log('blockInfo:', blockInfo);
+
+        // Submit via safe batcher
         const batcher = new ethers.Contract(BATCHER_ADDRESS, BATCHER_ABI, signer);
 
         const reportData = [{
@@ -1198,12 +1420,21 @@ async function submitInitialReport() {
             stateHash: stateHash
         }];
 
-        console.log('Calling batcher.submitInitialReports...');
+        console.log('Calling batcher.submitInitialReportSafe...');
         console.log('reportData:', JSON.stringify(reportData, (k, v) => typeof v === 'object' && v._isBigNumber ? v.toString() : v, 2));
 
         // Try to estimate gas first to get better error message
         try {
-            const gasEstimate = await batcher.estimateGas.submitInitialReports(reportData, amount1, amount2);
+            const gasEstimate = await batcher.estimateGas.submitInitialReportSafe(
+                reportData,
+                oracleParams,
+                amount1,
+                amount2,
+                blockInfo.timestamp,
+                blockInfo.blockNumber,
+                blockInfo.timestampBound,
+                blockInfo.blockNumberBound
+            );
             console.log('Gas estimate:', gasEstimate.toString());
         } catch (gasError) {
             console.error('Gas estimation failed:', gasError);
@@ -1214,7 +1445,16 @@ async function submitInitialReport() {
             throw gasError;
         }
 
-        const tx = await batcher.submitInitialReports(reportData, amount1, amount2);
+        const tx = await batcher.submitInitialReportSafe(
+            reportData,
+            oracleParams,
+            amount1,
+            amount2,
+            blockInfo.timestamp,
+            blockInfo.blockNumber,
+            blockInfo.timestampBound,
+            blockInfo.blockNumberBound
+        );
         console.log('TX sent:', tx.hash);
 
         const receipt = await tx.wait();
@@ -1371,6 +1611,18 @@ function calculateSettleGasCost(callbackGasLimit) {
     return gasCostWei;
 }
 
+function calculateInitialReportGasCost() {
+    if (!currentGasPrice) return null;
+    const gasUsed = 315000;
+    return currentGasPrice.mul(gasUsed);
+}
+
+function calculateDisputeGasCost() {
+    if (!currentGasPrice) return null;
+    const gasUsed = 240000;
+    return currentGasPrice.mul(gasUsed);
+}
+
 function renderReport(report, token1Info, token2Info) {
     const resultBox = document.getElementById('resultBox');
 
@@ -1379,17 +1631,20 @@ function renderReport(report, token1Info, token2Info) {
     const isSettled = report.isDistributed;
 
     // Calculate net reward for display
-    // If settler reward covers gas, another settler will grab it, so reporter just gets their fee
-    // If settler reward doesn't cover gas, reporter has to settle themselves and takes the loss
+    // Account for: submission gas, settle gas (if settler reward doesn't cover it)
     const settleGasCost = calculateSettleGasCost(report.callbackGasLimit);
+    const submitGasCost = calculateInitialReportGasCost();
     const netSettlerReward = settleGasCost ? report.settlerReward.sub(settleGasCost) : null;
     let netReporterReward;
     if (netSettlerReward && netSettlerReward.lt(0)) {
         // Reporter will have to settle themselves, subtract the loss
         netReporterReward = report.fee.add(netSettlerReward);
     } else {
-        // Another settler will grab it, reporter just gets their fee
         netReporterReward = report.fee;
+    }
+    // Subtract submission gas cost
+    if (submitGasCost) {
+        netReporterReward = netReporterReward.sub(submitGasCost);
     }
 
     let statusBadge = '';
@@ -1403,7 +1658,7 @@ function renderReport(report, token1Info, token2Info) {
         const settleTs = reportTs + settlementTimeSecs;
         const remaining = settleTs - now;
         const initialTimeStr = remaining > 0 ? (remaining >= 60 ? `${Math.floor(remaining / 60)}m ${remaining % 60}s` : `${remaining}s`) : 'Ready';
-        const canDispute = report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT;
+        const canDispute = report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT && isSettlementTimeValid(report);
         const disputeBtn = canDispute ? `<button class="dispute-btn" onclick="toggleDisputePane()">Dispute</button>` : '';
         statusBadge = `<span class="pending-badge">Pending Settlement</span><span id="settlementCountdown" class="countdown-timer ${remaining <= 0 ? 'ready' : ''}">${initialTimeStr}</span>${disputeBtn}`;
     } else {
@@ -1413,15 +1668,18 @@ function renderReport(report, token1Info, token2Info) {
         const liqStr = liqFloat.toPrecision(2) + ' ' + token1Info.symbol;
 
         // Don't show Report button if callbackGasLimit is too high
-        const canReport = report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT;
-        const reportBtn = canReport ? `<button class="report-btn" onclick="toggleReportPane()">Report</button>` : `<span style="font-size: 11px; color: #ef4444;">Gas limit too high</span>`;
+        const canReport = report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT && isSettlementTimeValid(report);
+        let reportBtnReason = '';
+        if (report.callbackGasLimit > MAX_CALLBACK_GAS_REPORT) reportBtnReason = 'Gas limit too high';
+        else if (!isSettlementTimeValid(report)) reportBtnReason = 'Settlement time too high';
+        const reportBtn = canReport ? `<button class="report-btn" onclick="toggleReportPane()">Report</button>` : `<span style="font-size: 11px; color: #ef4444;">${reportBtnReason}</span>`;
 
         statusBadge = `<span style="display: inline-flex; align-items: center; gap: 8px; vertical-align: middle;"><span class="no-report-badge">Awaiting Initial Report</span>${reportBtn}<span style="font-size: 13px; color: #10b981;">Reward: ~$${rewardUsd}</span><span style="font-size: 13px; color: #888;">Liquidity: ~${liqStr}</span></span>`;
     }
 
-    // Report pane HTML (shown above header when opened) - only if gas limit is acceptable
+    // Report pane HTML (shown above header when opened) - only if gas limit and settlement time are acceptable
     let reportPaneHtml = '';
-    if (!hasInitialReport && report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT) {
+    if (!hasInitialReport && report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT && isSettlementTimeValid(report)) {
         const settlementTimeSecs = typeof report.settlementTime === 'number' ? report.settlementTime : report.settlementTime.toNumber();
         const settlementMins = (settlementTimeSecs / 60).toFixed(1);
 
@@ -1455,9 +1713,16 @@ function renderReport(report, token1Info, token2Info) {
 
     // Dispute pane HTML (for pending settlement reports)
     let disputePaneHtml = '';
-    if (hasInitialReport && !isSettled && report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT) {
+    if (hasInitialReport && !isSettled && report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT && isSettlementTimeValid(report)) {
         // Calculate dispute info for display
         const tempDisputeInfo = calculateDisputeInfo(report, token1Info, token2Info);
+
+        // Settlement time string for tooltip
+        const settlementTimeVal = typeof report.settlementTime === 'number' ? report.settlementTime : report.settlementTime.toNumber();
+        const settlementStr = report.timeType
+            ? (settlementTimeVal >= 60 ? `${(settlementTimeVal / 60).toFixed(1)} min` : `${settlementTimeVal} sec`)
+            : `${settlementTimeVal} block`;
+
         disputePaneHtml = `
         <div id="disputePane" class="report-pane dispute-pane" style="display: none;">
             <div class="pane-header" style="color: var(--accent-red);">Submit Dispute</div>
@@ -1480,7 +1745,7 @@ function renderReport(report, token1Info, token2Info) {
                 <div class="pane-row">
                     <div class="pane-label">
                         Breakeven Volatility
-                        <span class="tooltip" data-tip="Maximum price movement (in either direction, at any time) over the settlement period where you remain profitable. If price moves more than this %, anyone could profitably dispute you and you'd lose money.">(?)</span>
+                        <span class="tooltip" data-tip="Maximum price movement (in either direction, at any time) over the ${settlementStr} settlement period where you remain profitable. If price moves more than this %, anyone could profitably dispute you and you'd lose money.">(?)</span>
                     </div>
                     <div class="pane-value" id="disputeBreakeven">--</div>
                 </div>
@@ -1747,7 +2012,12 @@ function calculateDisputeInfo(report, token1Info, token2Info) {
         swapFeeUSD = swapFeeEth * ethPrice;
         protocolFeeUSD = protocolFeeEth * ethPrice;
         tokenDistanceUSD = priceDiff * wethFloat; // This is already in USD
-        netPnLUSD = tokenDistanceUSD - swapFeeUSD - protocolFeeUSD;
+
+        // Include dispute gas cost
+        const disputeGasCost = calculateDisputeGasCost();
+        const disputeGasCostUsd = disputeGasCost ? parseFloat(ethers.utils.formatUnits(disputeGasCost, 18)) * ethPrice : 0;
+
+        netPnLUSD = tokenDistanceUSD - swapFeeUSD - protocolFeeUSD - disputeGasCostUsd;
     }
 
     return {
@@ -1953,12 +2223,17 @@ async function loadOverview(autoDetect = false) {
                 awaiting++;
 
                 const settleGasCost = calculateSettleGasCost(report.callbackGasLimit);
+                const submitGasCost = calculateInitialReportGasCost();
                 const netSettlerReward = settleGasCost ? report.settlerReward.sub(settleGasCost) : ethers.BigNumber.from(0);
                 let netReward;
                 if (netSettlerReward.lt(0)) {
                     netReward = report.fee.add(netSettlerReward);
                 } else {
                     netReward = report.fee;
+                }
+                // Subtract submission gas cost
+                if (submitGasCost) {
+                    netReward = netReward.sub(submitGasCost);
                 }
                 const rewardEth = parseFloat(ethers.utils.formatUnits(netReward, 18));
                 valueUsd = ethPrice ? (rewardEth * ethPrice) : 0;
@@ -2000,7 +2275,11 @@ async function loadOverview(autoDetect = false) {
                     const swapFeeUsd = wethAmount * feePercent * ethPrice;
                     const burnFeeUsd = wethAmount * burnPercent * ethPrice;
 
-                    valueUsd = tokenDistanceUsd - swapFeeUsd - burnFeeUsd;
+                    // Dispute gas cost in USD
+                    const disputeGasCost = calculateDisputeGasCost();
+                    const disputeGasCostUsd = disputeGasCost ? parseFloat(ethers.utils.formatUnits(disputeGasCost, 18)) * ethPrice : 0;
+
+                    valueUsd = tokenDistanceUsd - swapFeeUsd - burnFeeUsd - disputeGasCostUsd;
                 } else {
                     valueUsd = 0; // Unknown pair
                 }

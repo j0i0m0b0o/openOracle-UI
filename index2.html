@@ -442,7 +442,12 @@
             color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 1.5px;
+            margin-top: 20px;
             margin-bottom: 16px;
+        }
+
+        .section-title:first-child {
+            margin-top: 0;
         }
 
         /* Info Grid */
@@ -1184,6 +1189,81 @@
             </div>
         </div>
     </div>
+
+    <!-- Risk Disclaimer Modal -->
+    <div id="riskModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 10000; align-items: center; justify-content: center;">
+        <div style="background: var(--bg-secondary); border-radius: 16px; max-width: 520px; padding: 32px; margin: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.4); border: 1px solid var(--border-color);">
+            <h2 style="margin: 0 0 20px 0; color: var(--accent-red); font-size: 22px; font-family: var(--font-display);">Risk Warning</h2>
+
+            <div style="margin-bottom: 20px; line-height: 1.6; color: var(--text-secondary); font-size: 14px;">
+                <p style="margin-bottom: 12px;"><strong style="color: var(--text-primary);">Participating in oracle reporting involves substantial risk, including but not limited to:</strong></p>
+                <ul style="margin: 0 0 16px 20px; padding: 0;">
+                    <li style="margin-bottom: 8px;">Permanent loss of funds due to price volatility during settlement periods.</li>
+                    <li style="margin-bottom: 8px;">Loss of staked capital if your report is disputed with a more accurate price.</li>
+                    <li style="margin-bottom: 8px;">Smart contract bugs, oracle failures, or unforeseen edge cases.</li>
+                    <li style="margin-bottom: 8px;">MEV, front-running, or other on-chain adversarial behavior.</li>
+                </ul>
+
+                <p style="margin-bottom: 12px;"><strong style="color: var(--text-primary);">By clicking "I Understand and Accept", you acknowledge:</strong></p>
+                <ul style="margin: 0 0 16px 20px; padding: 0;">
+                    <li style="margin-bottom: 8px;">You are solely responsible for verifying all transaction parameters before signing.</li>
+                    <li style="margin-bottom: 8px;">You assume all risks associated with use of the openOracle protocol.</li>
+                    <li style="margin-bottom: 8px;">The protocol and its contributors provide no guarantees, no warranties, and no liability for losses.</li>
+                </ul>
+            </div>
+
+            <div style="margin-bottom: 24px; background: rgba(255, 71, 87, 0.1); border: 1px solid rgba(255, 71, 87, 0.3); border-radius: 8px; padding: 12px;">
+                <label style="display: flex; align-items: flex-start; cursor: pointer; font-size: 14px;">
+                    <input type="checkbox" id="riskCheckbox" style="margin-right: 10px; margin-top: 2px; cursor: pointer; accent-color: var(--accent-red);">
+                    <span style="color: var(--accent-red); line-height: 1.4;">I understand that I may lose all funds and accept full responsibility.</span>
+                </label>
+            </div>
+
+            <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                <button onclick="cancelRiskModal()" style="padding: 10px 20px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; cursor: pointer; color: var(--text-secondary); font-family: var(--font-mono);">Cancel</button>
+                <button id="acceptRiskBtn" onclick="acceptRiskModal()" disabled style="padding: 10px 20px; background: var(--accent-red); border: none; border-radius: 8px; font-size: 14px; cursor: pointer; color: white; opacity: 0.5; font-family: var(--font-mono);">I Understand and Accept</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Risk modal functions
+        document.getElementById('riskCheckbox').addEventListener('change', function(e) {
+            const acceptBtn = document.getElementById('acceptRiskBtn');
+            if (e.target.checked) {
+                acceptBtn.disabled = false;
+                acceptBtn.style.opacity = '1';
+            } else {
+                acceptBtn.disabled = true;
+                acceptBtn.style.opacity = '0.5';
+            }
+        });
+
+        function cancelRiskModal() {
+            document.getElementById('riskModal').style.display = 'none';
+            // Disconnect wallet since they didn't accept
+            if (window.disconnectWallet) {
+                window.disconnectWallet();
+            }
+        }
+
+        function acceptRiskModal() {
+            if (!document.getElementById('riskCheckbox').checked) return;
+
+            // Store consent for this wallet address
+            if (window.userAddress) {
+                localStorage.setItem(`oracleRiskAccepted_${window.userAddress.toLowerCase()}`, 'true');
+            }
+
+            // Hide modal
+            document.getElementById('riskModal').style.display = 'none';
+
+            // Continue with connection flow
+            if (window.finishWalletConnection) {
+                window.finishWalletConnection();
+            }
+        }
+    </script>
 
     <script src="app_updated2.js"></script>
 </body>
