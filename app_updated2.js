@@ -894,6 +894,9 @@ function updateBreakevenVolatility() {
     const breakevenRow = document.getElementById('breakevenRow');
     const breakevenValueEl = document.getElementById('breakevenValue');
 
+    // Elements don't exist until report pane is rendered
+    if (!breakevenRow || !breakevenValueEl) return;
+
     const report = currentReport;
     const token1Info = report.token1Info;
     const token2Info = report.token2Info;
@@ -941,14 +944,16 @@ function updateBreakevenVolatility() {
         wethAmount = amount2Value;
     }
 
-    // Breakeven volatility accounting for swap fees you receive if disputed
-    // B = (profit/position + fee_rate) / (1 + fee_rate)
+    // Breakeven volatility: R* = (b + f) / (1 + f)
+    // where b = profit/position, f = fee rate
+    // Symmetric for UP and DOWN: assumes adversary picks worst tokenToSwap
+    // Loss(R) = Position × [(1+f)R - f], set equal to b × Position, solve for R
     const feeRate = report.feePercentage / 10000000; // swap fee rate
-    const simpleBreakeven = rewardEth / wethAmount;
-    const breakevenPercent = ((simpleBreakeven + feeRate) / (1 + feeRate)) * 100;
+    const b = rewardEth / wethAmount;
+    const breakeven = (b + feeRate) / (1 + feeRate) * 100;
 
-    breakevenValueEl.textContent = `±${breakevenPercent.toFixed(4)}%`;
-    breakevenValueEl.className = `pane-value ${breakevenPercent > 0.1 ? 'positive' : breakevenPercent > 0.01 ? '' : 'negative'}`;
+    breakevenValueEl.textContent = `±${breakeven.toFixed(2)}%`;
+    breakevenValueEl.className = `pane-value ${breakeven > 0.1 ? 'positive' : breakeven > 0.01 ? '' : 'negative'}`;
     breakevenRow.style.display = 'flex';
 }
 
@@ -1094,14 +1099,20 @@ function updateDisputeRequirements() {
     pnlEl.className = `pane-value ${immediatePnL >= 0 ? 'positive' : 'negative'}`;
 
     // Calculate and display breakeven volatility
-    // Accounts for swap fees you receive if disputed
-    // B = (profit/position + fee_rate) / (1 + fee_rate)
+    // R* = (b + f) / (1 + f) - symmetric for both directions
+    // Loss(R) = Position × [(1+f)R - f], set equal to b × Position
     const breakevenEl = document.getElementById('disputeBreakeven');
-    const feeRate = report.feePercentage / 10000000; // swap fee rate (protocol fee is burned, doesn't come to you)
-    const simpleBreakeven = amount2Value > 0 ? immediatePnL / amount2Value : 0;
-    const breakevenPercent = ((simpleBreakeven + feeRate) / (1 + feeRate)) * 100;
-    breakevenEl.textContent = `±${Math.abs(breakevenPercent).toFixed(4)}%`;
-    breakevenEl.className = `pane-value ${breakevenPercent > 0.1 ? 'positive' : breakevenPercent > 0.01 ? '' : 'negative'}`;
+    if (immediatePnL < 0) {
+        // Negative PnL means no breakeven - you're already losing
+        breakevenEl.textContent = 'N/A';
+        breakevenEl.className = 'pane-value negative';
+    } else {
+        const feeRate = report.feePercentage / 10000000; // swap fee rate
+        const b = amount2Value > 0 ? immediatePnL / amount2Value : 0;
+        const breakeven = (b + feeRate) / (1 + feeRate) * 100;
+        breakevenEl.textContent = `±${breakeven.toFixed(2)}%`;
+        breakevenEl.className = `pane-value ${breakeven > 0.1 ? 'positive' : breakeven > 0.01 ? '' : 'negative'}`;
+    }
 
     // Calculate USD values to recommend the cheaper option (if we have ETH price for known pairs)
     let token1SwapUsd = null;
@@ -1780,8 +1791,10 @@ function renderReport(report, token1Info, token2Info) {
     // Report pane HTML (shown above header when opened) - only if gas limit and settlement time are acceptable
     let reportPaneHtml = '';
     if (!hasInitialReport && report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT && isSettlementTimeValid(report)) {
-        const settlementTimeSecs = typeof report.settlementTime === 'number' ? report.settlementTime : report.settlementTime.toNumber();
-        const settlementMins = (settlementTimeSecs / 60).toFixed(1);
+        const settlementTimeVal = typeof report.settlementTime === 'number' ? report.settlementTime : report.settlementTime.toNumber();
+        const settlementStr = report.timeType
+            ? (settlementTimeVal >= 60 ? `${(settlementTimeVal / 60).toFixed(1)} min` : `${settlementTimeVal} sec`)
+            : `${settlementTimeVal} blocks`;
 
         reportPaneHtml = `
         <div id="reportPane" class="report-pane" style="display: none;">
@@ -1799,8 +1812,8 @@ function renderReport(report, token1Info, token2Info) {
             </div>
             <div id="breakevenRow" class="pane-row" style="display: none;">
                 <div class="pane-label">
-                    Breakeven Volatility
-                    <span class="tooltip" data-tip="Maximum price movement (in either direction, at any time) over the ${settlementMins} min settlement period where you remain profitable. If price moves more than this %, a disputer could profitably correct your report and you'd lose money.">(?)</span>
+                    Breakeven ${token1Info.symbol}/${token2Info.symbol} Volatility
+                    <span class="tooltip" data-tip="Higher is better. Max price move in either direction, at any time over ${settlementStr} settlement time, where you remain profitable if disputed.">(?)</span>
                 </div>
                 <div class="pane-value" id="breakevenValue">--</div>
             </div>
@@ -1821,7 +1834,7 @@ function renderReport(report, token1Info, token2Info) {
         const settlementTimeVal = typeof report.settlementTime === 'number' ? report.settlementTime : report.settlementTime.toNumber();
         const settlementStr = report.timeType
             ? (settlementTimeVal >= 60 ? `${(settlementTimeVal / 60).toFixed(1)} min` : `${settlementTimeVal} sec`)
-            : `${settlementTimeVal} block`;
+            : `${settlementTimeVal} blocks`;
 
         disputePaneHtml = `
         <div id="disputePane" class="report-pane dispute-pane" style="display: none;">
@@ -1844,8 +1857,8 @@ function renderReport(report, token1Info, token2Info) {
                 </div>
                 <div class="pane-row">
                     <div class="pane-label">
-                        Breakeven Volatility
-                        <span class="tooltip" data-tip="Maximum price movement (in either direction, at any time) over the ${settlementStr} settlement period where you remain profitable. If price moves more than this %, anyone could profitably dispute you and you'd lose money.">(?)</span>
+                        Breakeven ${token1Info.symbol}/${token2Info.symbol} Volatility
+                        <span class="tooltip" data-tip="Higher is better. Max price move in either direction, at any time over ${settlementStr} settlement time, where you remain profitable if re-disputed.">(?)</span>
                     </div>
                     <div class="pane-value" id="disputeBreakeven">--</div>
                 </div>
