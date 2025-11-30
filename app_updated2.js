@@ -6,6 +6,29 @@ const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
 const USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const BASE_CHAIN_ID = '0x2105'; // 8453
 
+// Whitelisted token addresses (Base) - pairs with both tokens whitelisted get a checkmark
+const WHITELISTED_TOKENS = new Set([
+    WETH_ADDRESS.toLowerCase(),
+    USDC_ADDRESS.toLowerCase()
+]);
+
+// Check if both tokens in a report are whitelisted
+function isWhitelistedPair(token1Address, token2Address) {
+    return WHITELISTED_TOKENS.has(token1Address.toLowerCase()) &&
+           WHITELISTED_TOKENS.has(token2Address.toLowerCase());
+}
+
+// Blue checkmark SVG for whitelisted pairs
+const WHITELIST_CHECK = '<span class="tooltip-icon" data-tip="Whitelisted tokens"><svg style="width: 16px; height: 16px; vertical-align: middle; margin-left: 4px;" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#3b82f6"/><path d="M8 12l3 3 5-6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>';
+
+// Red X SVG for non-whitelisted pairs
+const WHITELIST_X = '<span class="tooltip-icon" data-tip="Token(s) not whitelisted"><svg style="width: 16px; height: 16px; vertical-align: middle; margin-left: 4px;" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#ef4444"/><path d="M15 9l-6 6M9 9l6 6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>';
+
+// Get whitelist icon based on token pair
+function getWhitelistIcon(token1Address, token2Address) {
+    return isWhitelistedPair(token1Address, token2Address) ? WHITELIST_CHECK : WHITELIST_X;
+}
+
 // Constants
 const PRICE_PRECISION = ethers.BigNumber.from('1000000000000000000'); // 1e18
 const PERCENTAGE_PRECISION = ethers.BigNumber.from('10000000'); // 1e7
@@ -1885,8 +1908,9 @@ function renderReport(report, token1Info, token2Info) {
     const protocolFeePercent = (report.protocolFee / 100000).toFixed(3);
     const totalFeePercent = ((report.feePercentage + report.protocolFee) / 100000).toFixed(3);
 
+    const whitelistIcon = getWhitelistIcon(report.token1, report.token2);
     let html = `${reportPaneHtml}${disputePaneHtml}<div class="result-card">
-        <h2 style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">Report #${report.reportId} ${statusBadge}</h2>
+        <h2 style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">Report #${report.reportId}${whitelistIcon} ${statusBadge}</h2>
 
         <div class="section-title">Token Pair</div>
         <div class="info-grid">
@@ -2424,11 +2448,12 @@ async function loadOverview(autoDetect = false) {
             }
 
             const valueStr = Math.abs(valueUsd) >= 0.01 ? `$${valueUsd.toFixed(2)}` : `$${valueUsd.toFixed(4)}`;
+            const whitelistIcon = getWhitelistIcon(report.token1, report.token2);
 
             html += `
             <div class="report-box ${statusClass}" onclick="viewReport(${report.reportId})">
                 <div class="report-box-header">
-                    <span class="report-box-id">#${report.reportId}</span>
+                    <span class="report-box-id">#${report.reportId}${whitelistIcon}</span>
                     <span class="report-box-status">${statusText}</span>
                 </div>
                 <div class="report-box-row">

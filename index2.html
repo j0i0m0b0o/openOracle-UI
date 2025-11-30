@@ -337,7 +337,6 @@
             background: var(--bg-card);
             border: 1px solid var(--border-subtle);
             border-radius: 12px;
-            overflow: hidden;
             padding: 24px 28px;
         }
 
@@ -728,7 +727,6 @@
             transition: all 0.25s ease;
             border: 1px solid var(--border-subtle);
             position: relative;
-            overflow: hidden;
         }
 
         .report-box::after {
@@ -1077,6 +1075,39 @@
         }
 
         .tooltip:hover::after {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        /* Compact tooltip for icons */
+        .tooltip-icon {
+            position: relative;
+            display: inline-block;
+            cursor: help;
+        }
+
+        .tooltip-icon::after {
+            content: attr(data-tip);
+            position: absolute;
+            bottom: calc(100% + 6px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-primary);
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            white-space: nowrap;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s, visibility 0.2s;
+            z-index: 1000;
+            pointer-events: none;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .tooltip-icon:hover::after {
             opacity: 1;
             visibility: visible;
         }
