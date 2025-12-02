@@ -1,5 +1,5 @@
 // Contract addresses on Base
-const DATA_PROVIDER_ADDRESS = '0xB1a55abBc8537e96e59119EAeC105b5AA9A101E0'; // V3 with protocolFeeRecipient
+const DATA_PROVIDER_ADDRESS = '0x4d3F62062d714384178Eb41198BDaBC63F6DeaBD'; // V3 with array overload
 const ORACLE_ADDRESS = '0xdcaa5082564F395819dC2F215716Fe901a1d0A23';
 const BATCHER_ADDRESS = '0xFe5c89448E741D1542afFBf34b9Cf2a3789B82F9'; // Safe batcher
 const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
@@ -125,6 +125,49 @@ const DATA_PROVIDER_ABI = [
         }],
         "stateMutability": "view",
         "type": "function"
+    },
+    {
+        "inputs": [{"name": "reportIds", "type": "uint256[]"}],
+        "name": "getData",
+        "outputs": [{
+            "components": [
+                {"name": "reportId", "type": "uint256"},
+                {"name": "exactToken1Report", "type": "uint256"},
+                {"name": "escalationHalt", "type": "uint256"},
+                {"name": "fee", "type": "uint256"},
+                {"name": "settlerReward", "type": "uint256"},
+                {"name": "token1", "type": "address"},
+                {"name": "settlementTime", "type": "uint48"},
+                {"name": "token2", "type": "address"},
+                {"name": "timeType", "type": "bool"},
+                {"name": "feePercentage", "type": "uint24"},
+                {"name": "protocolFee", "type": "uint24"},
+                {"name": "multiplier", "type": "uint16"},
+                {"name": "disputeDelay", "type": "uint24"},
+                {"name": "currentAmount1", "type": "uint256"},
+                {"name": "currentAmount2", "type": "uint256"},
+                {"name": "price", "type": "uint256"},
+                {"name": "currentReporter", "type": "address"},
+                {"name": "reportTimestamp", "type": "uint48"},
+                {"name": "settlementTimestamp", "type": "uint48"},
+                {"name": "initialReporter", "type": "address"},
+                {"name": "lastReportOppoTime", "type": "uint48"},
+                {"name": "disputeOccurred", "type": "bool"},
+                {"name": "isDistributed", "type": "bool"},
+                {"name": "stateHash", "type": "bytes32"},
+                {"name": "callbackContract", "type": "address"},
+                {"name": "numReports", "type": "uint32"},
+                {"name": "callbackGasLimit", "type": "uint32"},
+                {"name": "callbackSelector", "type": "bytes4"},
+                {"name": "trackDisputes", "type": "bool"},
+                {"name": "keepFee", "type": "bool"},
+                {"name": "protocolFeeRecipient", "type": "address"}
+            ],
+            "name": "",
+            "type": "tuple[]"
+        }],
+        "stateMutability": "view",
+        "type": "function"
     }
 ];
 
@@ -171,6 +214,7 @@ const ORACLE_ABI = [
     "function nextReportId() view returns (uint256)",
     "function extraData(uint256 reportId) view returns (bytes32 stateHash, address callbackContract, uint32 numReports, uint32 callbackGasLimit, bytes4 callbackSelector, address protocolFeeRecipient, bool trackDisputes, bool keepFee)",
     "function disputeAndSwap(uint256 reportId, address tokenToSwap, uint256 newAmount1, uint256 newAmount2, uint256 amt2Expected, bytes32 stateHash) external",
+    "function settle(uint256 reportId) external",
     "event InitialReportSubmitted(uint256 indexed reportId, address reporter, uint256 amount1, uint256 amount2, address indexed token1Address, address indexed token2Address, uint256 swapFee, uint256 protocolFee, uint256 settlementTime, uint256 disputeDelay, uint256 escalationHalt, bool timeType, address callbackContract, bytes4 callbackSelector, bool trackDisputes, uint256 callbackGasLimit, bytes32 stateHash, uint256 blockTimestamp)",
     "event ReportDisputed(uint256 indexed reportId, address disputer, uint256 newAmount1, uint256 newAmount2, address indexed token1Address, address indexed token2Address, uint256 swapFee, uint256 protocolFee, uint256 settlementTime, uint256 disputeDelay, uint256 escalationHalt, bool timeType, address callbackContract, bytes4 callbackSelector, bool trackDisputes, uint256 callbackGasLimit, bytes32 stateHash, uint256 blockTimestamp)",
     "event ReportSettled(uint256 indexed reportId, uint256 price, uint256 settlementTimestamp, uint256 blockTimestamp)"
@@ -304,11 +348,11 @@ const BATCHER_ABI = [
 
 // RPC endpoints for racing
 const RPC_ENDPOINTS = [
-    'https://mainnet.base.org',
     'https://base.drpc.org',
     'https://base-rpc.publicnode.com',
     'https://base.meowrpc.com',
-    'https://base.gateway.tenderly.co'
+    'https://base.gateway.tenderly.co',
+    'https://mainnet.base.org'  // Last - heavily rate-limited
 ];
 
 // Global state
@@ -327,6 +371,8 @@ let settlementTargetTime = null; // Target timestamp for countdown
 let liveUsdValues = null; // Store ETH amounts for live USD updates
 let currentDisputeInfo = null; // Store dispute info for dispute pane
 let currentDisputeSwapInfo = null; // Store calculated swap requirements for dispute submission
+let myReportsTimerInterval = null; // Timer for My Reports countdowns
+let pollingInterval = null; // Fallback polling for report updates (events only use first RPC)
 
 // Initialize providers and start price feeds
 async function init() {
@@ -406,6 +452,14 @@ function setupEventListeners(reportId) {
 
     console.log(`Listening for events on report #${reportId}`);
 
+    // Also start periodic polling as fallback (event listener only uses first RPC)
+    // This uses all RPCs via race mechanism
+    if (pollingInterval) clearInterval(pollingInterval);
+    pollingInterval = setInterval(() => {
+        refreshCurrentReport();
+    }, 5000); // Poll every 5 seconds
+    console.log(`Polling fallback started for report #${reportId}`);
+
     // Update UI indicator
     document.getElementById('eventStatus').style.display = 'inline';
     document.getElementById('listeningReportId').textContent = reportId;
@@ -421,6 +475,12 @@ function cleanupEventListeners() {
     }
     eventListeners = [];
     currentReportId = null;
+
+    // Stop polling fallback
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
 
     // Hide UI indicator
     const eventStatus = document.getElementById('eventStatus');
@@ -538,9 +598,16 @@ function updateLiveUsdValues() {
 }
 
 // Refresh the current report data and UI
+let isRefreshing = false; // Guard against concurrent refreshes
+
 async function refreshCurrentReport() {
     if (!currentReportId) return;
+    if (isRefreshing) {
+        console.log('Refresh already in progress, skipping');
+        return;
+    }
 
+    isRefreshing = true;
     console.log(`Refreshing report #${currentReportId}...`);
 
     try {
@@ -575,6 +642,8 @@ async function refreshCurrentReport() {
         console.log(`Report refreshed from block ${raceResult.blockNum}`);
     } catch (e) {
         console.error('Error refreshing report:', e);
+    } finally {
+        isRefreshing = false;
     }
 }
 
@@ -952,6 +1021,14 @@ function updateBreakevenVolatility() {
     // Reward is in ETH, WETH amount is in ETH - same units, simple ratio
     const rewardEth = parseFloat(ethers.utils.formatUnits(netReporterReward, 18));
 
+    // If reward is negative, breakeven volatility doesn't apply
+    if (rewardEth < 0) {
+        breakevenValueEl.textContent = 'N/A';
+        breakevenValueEl.className = 'pane-value';
+        breakevenRow.style.display = 'flex';
+        return;
+    }
+
     // Get the WETH leg amount
     let wethAmount;
     if (isToken1Weth) {
@@ -1240,9 +1317,32 @@ function buildOracleParams(report) {
     };
 }
 
-// Get fresh block info for safe batcher time bounds
+// Get fresh block info for safe batcher time bounds - use highest block from all RPCs
 async function getFreshBlockInfo() {
-    const block = await providers[0].getBlock('latest');
+    const blockPromises = providers.map((p, i) =>
+        p.getBlock('latest')
+            .then(block => {
+                console.log(`Block info from RPC ${i}: block ${block.number}, ts ${block.timestamp}`);
+                return block;
+            })
+            .catch(e => {
+                console.warn(`RPC ${i} block fetch failed:`, e.message);
+                return null;
+            })
+    );
+    const results = await Promise.all(blockPromises);
+    const blocks = results.filter(b => b !== null);
+
+    if (blocks.length === 0) {
+        throw new Error('All RPCs failed to get block info');
+    }
+
+    // Use the highest block number (most up-to-date)
+    const block = blocks.reduce((best, curr) =>
+        curr.number > best.number ? curr : best
+    );
+    console.log(`Using highest block: ${block.number}, timestamp: ${block.timestamp}`);
+
     return {
         timestamp: block.timestamp,
         blockNumber: block.number,
@@ -1384,10 +1484,16 @@ async function submitDispute() {
         const receipt = await tx.wait();
         console.log('TX confirmed:', receipt);
 
-        // Hide pane - event listener will refresh the UI
+        // Save to My Reports
+        saveReportId(report.reportId);
+
+        // Hide pane
         const pane = document.getElementById('disputePane');
         if (pane) pane.style.display = 'none';
         console.log('Dispute submitted successfully!');
+
+        // Refresh the report display to show new state
+        await searchReport();
 
     } catch (e) {
         console.error('Dispute error:', e);
@@ -1564,10 +1670,16 @@ async function submitInitialReport() {
         const receipt = await tx.wait();
         console.log('TX confirmed:', receipt);
 
-        // Hide pane - event listener will refresh the UI
+        // Save to My Reports
+        saveReportId(report.reportId);
+
+        // Hide pane
         const pane = document.getElementById('reportPane');
         if (pane) pane.style.display = 'none';
         console.log('Initial report submitted successfully!');
+
+        // Refresh the report display to show new state
+        await searchReport();
     } catch (e) {
         console.error('Submit error:', e);
         // Try to extract more meaningful error
@@ -1579,6 +1691,56 @@ async function submitInitialReport() {
             errorMsg = e.reason;
         }
         showError('Failed to submit: ' + errorMsg);
+    }
+}
+
+async function settleReport(reportId) {
+    // Connect wallet if not connected
+    if (!signer) {
+        const connected = await connectWallet();
+        if (!connected) return;
+    }
+
+    try {
+        console.log('=== Settle Report Debug ===');
+        console.log('reportId:', reportId);
+
+        const oracle = new ethers.Contract(ORACLE_ADDRESS, ORACLE_ABI, signer);
+
+        // Estimate gas first
+        try {
+            const gasEstimate = await oracle.estimateGas.settle(reportId);
+            console.log('Gas estimate:', gasEstimate.toString());
+        } catch (gasError) {
+            console.error('Gas estimation failed:', gasError);
+            // Try to decode revert reason
+            if (gasError.reason) {
+                showError('Cannot settle: ' + gasError.reason);
+                return;
+            }
+            throw gasError;
+        }
+
+        const tx = await oracle.settle(reportId);
+        console.log('TX sent:', tx.hash);
+
+        const receipt = await tx.wait();
+        console.log('TX confirmed:', receipt);
+
+        // Refresh the report view
+        searchReport();
+        console.log('Report settled successfully!');
+
+    } catch (e) {
+        console.error('Settle error:', e);
+        let errorMsg = e.message;
+        if (e.error && e.error.message) {
+            errorMsg = e.error.message;
+        }
+        if (e.reason) {
+            errorMsg = e.reason;
+        }
+        showError('Failed to settle: ' + errorMsg);
     }
 }
 
@@ -1794,10 +1956,28 @@ function renderReport(report, token1Info, token2Info) {
         const initialTimeStr = remaining > 0 ? (remaining >= 60 ? `${Math.floor(remaining / 60)}m ${remaining % 60}s` : `${remaining}s`) : 'Ready';
         const canDispute = report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT && isSettlementTimeValid(report);
         const disputeBtn = canDispute ? `<button class="dispute-btn" onclick="toggleDisputePane()">Dispute</button>` : '';
-        statusBadge = `<span class="pending-badge">Pending Settlement</span><span id="settlementCountdown" class="countdown-timer ${remaining <= 0 ? 'ready' : ''}">${initialTimeStr}</span>${disputeBtn}`;
+
+        // Add settle button if ready
+        let settleBtn = '';
+        if (remaining <= 0) {
+            // Calculate net reward for display
+            const settleGasCost = calculateSettleGasCost(report.callbackGasLimit);
+            let netRewardStr = '';
+            if (settleGasCost && report.settlerReward) {
+                const netReward = report.settlerReward.sub(settleGasCost);
+                const netRewardEth = parseFloat(ethers.utils.formatUnits(netReward, 18));
+                const netRewardUsd = ethPrice ? netRewardEth * ethPrice : 0;
+                const rewardClass = netRewardUsd >= 0 ? 'color: #10b981;' : 'color: #ef4444;';
+                netRewardStr = `<span style="font-size: 12px; ${rewardClass} margin-left: 8px;">Net: ${ethPrice ? '$' + netRewardUsd.toFixed(4) : netRewardEth.toFixed(6) + ' ETH'}</span>`;
+            }
+            settleBtn = `<button class="settle-btn" onclick="settleReport(${report.reportId})" style="background: #10b981; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: 500; margin-left: 8px;">Settle</button>${netRewardStr}`;
+        }
+
+        statusBadge = `<span class="pending-badge">Pending Settlement</span><span id="settlementCountdown" class="countdown-timer ${remaining <= 0 ? 'ready' : ''}">${initialTimeStr}</span>${disputeBtn}${settleBtn}`;
     } else {
         const rewardEth = parseFloat(ethers.utils.formatUnits(netReporterReward, 18));
         const rewardUsd = ethPrice ? (rewardEth * ethPrice).toPrecision(2) : '??';
+        const rewardColor = (ethPrice && rewardEth * ethPrice >= 0) ? '#10b981' : '#ef4444';
         const liqFloat = parseFloat(ethers.utils.formatUnits(report.exactToken1Report, token1Info.decimals));
         const liqStr = liqFloat.toPrecision(2) + ' ' + token1Info.symbol;
 
@@ -1808,7 +1988,7 @@ function renderReport(report, token1Info, token2Info) {
         else if (!isSettlementTimeValid(report)) reportBtnReason = 'Settlement time too high';
         const reportBtn = canReport ? `<button class="report-btn" onclick="toggleReportPane()">Report</button>` : `<span style="font-size: 11px; color: #ef4444;">${reportBtnReason}</span>`;
 
-        statusBadge = `<span style="display: inline-flex; align-items: center; gap: 8px; vertical-align: middle;"><span class="no-report-badge">Awaiting Initial Report</span>${reportBtn}<span style="font-size: 13px; color: #10b981;">Reward: ~$${rewardUsd}</span><span style="font-size: 13px; color: #888;">Liquidity: ~${liqStr}</span></span>`;
+        statusBadge = `<span style="display: inline-flex; align-items: center; gap: 8px; vertical-align: middle;"><span class="no-report-badge">Awaiting Initial Report</span>${reportBtn}<span style="font-size: 13px; color: ${rewardColor};">Reward: ~$${rewardUsd}</span><span style="font-size: 13px; color: #888;">Liquidity: ~${liqStr}</span></span>`;
     }
 
     // Report pane HTML (shown above header when opened) - only if gas limit and settlement time are acceptable
@@ -2232,19 +2412,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Tab switching
 function switchTab(tab) {
+    // Stop My Reports timer when leaving that tab
+    if (tab !== 'myreports') {
+        stopMyReportsTimer();
+    }
+
     // Update tab buttons
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    const tabIndex = tab === 'single' ? 1 : tab === 'overview' ? 2 : 3;
+    const tabIndex = tab === 'single' ? 1 : tab === 'overview' ? 2 : tab === 'myreports' ? 3 : 4;
     document.querySelector(`.tab:nth-child(${tabIndex})`).classList.add('active');
 
     // Update tab content
     document.getElementById('singleTab').classList.toggle('active', tab === 'single');
     document.getElementById('overviewTab').classList.toggle('active', tab === 'overview');
+    document.getElementById('myReportsTab').classList.toggle('active', tab === 'myreports');
     document.getElementById('wrapTab').classList.toggle('active', tab === 'wrap');
 
     // Auto-load overview if switching to it and grid is empty
-    if (tab === 'overview' && document.getElementById('reportsGrid').innerHTML === '') {
-        loadOverview(true); // autoDetect = true for initial load
+    if (tab === 'overview') {
+        // Clean up single report event listeners when leaving single tab
+        cleanupEventListeners();
+        if (document.getElementById('reportsGrid').innerHTML === '') {
+            loadOverview(true); // autoDetect = true for initial load
+        }
+    }
+
+    // Auto-load my reports if switching to it
+    if (tab === 'myreports') {
+        loadMyReports();
     }
 
     // Refresh balances when switching to wrap tab
@@ -2485,6 +2680,272 @@ function viewReport(reportId) {
     document.getElementById('reportId').value = reportId;
     switchTab('single');
     searchReport();
+}
+
+// ============ MY REPORTS - LocalStorage Functions ============
+
+const MY_REPORTS_KEY = 'openoracle_my_reports';
+
+function getMyReportIds() {
+    try {
+        const stored = localStorage.getItem(MY_REPORTS_KEY);
+        return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+        console.error('Error loading my reports:', e);
+        return [];
+    }
+}
+
+function saveReportId(reportId) {
+    const reportIds = getMyReportIds();
+    // Handle BigNumber or string or number
+    const id = typeof reportId === 'object' && reportId._isBigNumber
+        ? reportId.toNumber()
+        : parseInt(reportId.toString());
+    console.log('Saving report ID to My Reports:', id);
+    if (!reportIds.includes(id)) {
+        reportIds.push(id);
+        reportIds.sort((a, b) => b - a); // Most recent first
+        localStorage.setItem(MY_REPORTS_KEY, JSON.stringify(reportIds));
+        console.log('Saved. Current My Reports:', reportIds);
+    } else {
+        console.log('Report ID already in My Reports');
+    }
+}
+
+function removeReportId(reportId) {
+    const reportIds = getMyReportIds();
+    const id = parseInt(reportId);
+    const filtered = reportIds.filter(r => r !== id);
+    localStorage.setItem(MY_REPORTS_KEY, JSON.stringify(filtered));
+}
+
+function clearMyReports() {
+    if (confirm('Are you sure you want to clear all tracked reports?')) {
+        localStorage.removeItem(MY_REPORTS_KEY);
+        loadMyReports();
+    }
+}
+
+async function loadMyReports() {
+    const reportIds = getMyReportIds();
+    const grid = document.getElementById('myReportsGrid');
+    const loading = document.getElementById('myReportsLoading');
+    const empty = document.getElementById('myReportsEmpty');
+    const stats = document.getElementById('myReportsStats');
+
+    if (reportIds.length === 0) {
+        grid.innerHTML = '';
+        empty.style.display = 'block';
+        loading.style.display = 'none';
+        stats.textContent = '0 reports tracked';
+        return;
+    }
+
+    empty.style.display = 'none';
+    loading.style.display = 'block';
+    grid.innerHTML = '';
+
+    try {
+        // Fetch all report IDs in one batch call - race providers for speed
+        const dataPromises = providers.map(p => {
+            const contract = new ethers.Contract(DATA_PROVIDER_ADDRESS, DATA_PROVIDER_ABI, p);
+            return contract['getData(uint256[])'](reportIds);
+        });
+        const reports = await Promise.any(dataPromises);
+
+        loading.style.display = 'none';
+
+        if (!reports || reports.length === 0) {
+            empty.style.display = 'block';
+            stats.textContent = '0 reports found';
+            return;
+        }
+
+        // Categorize reports and track which to purge
+        let unsettled = 0;
+        let settled = 0;
+        let readyToSettle = 0;
+        const toPurge = [];
+
+        let html = '';
+        for (const report of reports) {
+            const hasInitialReport = report.currentReporter !== ethers.constants.AddressZero;
+            const isSettled = report.isDistributed;
+            const reportId = typeof report.reportId === 'number' ? report.reportId : report.reportId.toNumber();
+
+            // Check if we should purge this report
+            if (isSettled) {
+                settled++;
+                toPurge.push(reportId);
+                continue; // Skip settled reports in the grid
+            }
+
+            // Check if user is no longer the current reporter (got out-disputed)
+            if (hasInitialReport && userAddress) {
+                const currentReporter = report.currentReporter.toLowerCase();
+                const initialReporter = report.initialReporter.toLowerCase();
+                const user = userAddress.toLowerCase();
+                // Purge if user was involved but is no longer current reporter
+                if ((initialReporter === user || report.disputeOccurred) && currentReporter !== user) {
+                    toPurge.push(reportId);
+                    continue; // Skip - user lost this position
+                }
+            }
+
+            unsettled++;
+
+            // Check if ready to settle
+            let canSettle = false;
+            let settlementStr = '';
+            if (hasInitialReport) {
+                const now = Math.floor(Date.now() / 1000);
+                const reportTimestamp = typeof report.reportTimestamp === 'number' ? report.reportTimestamp : report.reportTimestamp.toNumber();
+                const settlementTime = typeof report.settlementTime === 'number' ? report.settlementTime : report.settlementTime.toNumber();
+
+                if (report.timeType) {
+                    // Time-based settlement
+                    const settlementTimestamp = reportTimestamp + settlementTime;
+                    canSettle = now >= settlementTimestamp;
+                    if (canSettle) {
+                        settlementStr = 'Ready to settle';
+                        readyToSettle++;
+                    } else {
+                        const remaining = settlementTimestamp - now;
+                        settlementStr = remaining > 60 ? `${Math.ceil(remaining / 60)}m left` : `${remaining}s left`;
+                    }
+                } else {
+                    // Block-based settlement
+                    settlementStr = `${settlementTime} blks`;
+                }
+            } else {
+                settlementStr = 'Awaiting report';
+            }
+
+            // Calculate net settler reward
+            let netRewardStr = '--';
+            let netRewardClass = '';
+            if (hasInitialReport && canSettle) {
+                const settleGasCost = calculateSettleGasCost(report.callbackGasLimit);
+                if (settleGasCost && report.settlerReward) {
+                    const netReward = report.settlerReward.sub(settleGasCost);
+                    const netRewardEth = parseFloat(ethers.utils.formatUnits(netReward, 18));
+                    const netRewardUsd = ethPrice ? netRewardEth * ethPrice : 0;
+                    netRewardStr = ethPrice ? `$${netRewardUsd.toFixed(4)}` : `${netRewardEth.toFixed(6)} ETH`;
+                    netRewardClass = netRewardUsd >= 0 ? 'profit' : 'loss';
+                }
+            }
+
+            const statusClass = canSettle ? 'awaiting' : (hasInitialReport ? 'disputed' : 'awaiting');
+            const whitelistIcon = getWhitelistIcon(report.token1, report.token2);
+
+            // Build rows based on state
+            let row1Label, row1Value, row1Class = '';
+            let row2Label = '', row2Value = '';
+
+            // Calculate settlement target timestamp for live countdown
+            let settlementTarget = 0;
+            if (hasInitialReport && report.timeType && !canSettle) {
+                const reportTimestamp = typeof report.reportTimestamp === 'number' ? report.reportTimestamp : report.reportTimestamp.toNumber();
+                const settlementTime = typeof report.settlementTime === 'number' ? report.settlementTime : report.settlementTime.toNumber();
+                settlementTarget = reportTimestamp + settlementTime;
+            }
+
+            if (canSettle) {
+                row1Label = 'Net Reward';
+                row1Value = netRewardStr;
+                row1Class = netRewardClass;
+                row2Label = 'Status';
+                row2Value = 'Ready to settle';
+            } else if (hasInitialReport) {
+                row1Label = 'Time Left';
+                row1Value = settlementStr;
+                row2Label = 'Settlement';
+                row2Value = report.timeType ? `${report.settlementTime}s window` : `${report.settlementTime} blocks`;
+            } else {
+                row1Label = 'Status';
+                row1Value = 'Awaiting initial report';
+                row2Label = 'Settlement';
+                row2Value = report.timeType ? `${report.settlementTime}s window` : `${report.settlementTime} blocks`;
+            }
+
+            // Add data-settlement-target for live countdown updates
+            const countdownAttr = settlementTarget > 0 ? `data-settlement-target="${settlementTarget}"` : '';
+
+            html += `
+            <div class="report-box ${statusClass}" onclick="viewReport(${report.reportId})" data-report-id="${report.reportId}">
+                <div class="report-box-header">
+                    <span class="report-box-id">#${report.reportId}${whitelistIcon}</span>
+                    <span class="report-box-status">${canSettle ? 'SETTLE NOW' : (hasInitialReport ? 'Pending' : 'No Report')}</span>
+                </div>
+                <div class="report-box-row">
+                    <span class="report-box-label">${row1Label}</span>
+                    <span class="report-box-value ${row1Class}" ${countdownAttr}>${row1Value}</span>
+                </div>
+                <div class="report-box-row">
+                    <span class="report-box-label">${row2Label}</span>
+                    <span class="report-box-value">${row2Value}</span>
+                </div>
+            </div>`;
+        }
+
+        grid.innerHTML = html;
+        stats.textContent = `${unsettled} unsettled, ${readyToSettle} ready to settle, ${settled} settled`;
+
+        // Purge settled/lost reports from localStorage
+        if (toPurge.length > 0) {
+            console.log(`Purging ${toPurge.length} reports from My Reports:`, toPurge);
+            for (const id of toPurge) {
+                removeReportId(id);
+            }
+        }
+
+        // Start live countdown timer for My Reports
+        startMyReportsTimer();
+
+    } catch (e) {
+        console.error('Error loading my reports:', e);
+        loading.style.display = 'none';
+        grid.innerHTML = '<div style="color: #ef4444; padding: 20px;">Error loading reports</div>';
+    }
+}
+
+// Start live countdown timers for My Reports tab
+function startMyReportsTimer() {
+    stopMyReportsTimer();
+    myReportsTimerInterval = setInterval(updateMyReportsCountdowns, 1000);
+}
+
+// Stop My Reports timer
+function stopMyReportsTimer() {
+    if (myReportsTimerInterval) {
+        clearInterval(myReportsTimerInterval);
+        myReportsTimerInterval = null;
+    }
+}
+
+// Update all countdown timers in My Reports
+function updateMyReportsCountdowns() {
+    const elements = document.querySelectorAll('[data-settlement-target]');
+    const now = Math.floor(Date.now() / 1000);
+
+    elements.forEach(el => {
+        const target = parseInt(el.getAttribute('data-settlement-target'));
+        if (target <= 0) return;
+
+        const remaining = target - now;
+        if (remaining <= 0) {
+            // Time's up - reload to update status
+            el.textContent = 'Ready!';
+            el.removeAttribute('data-settlement-target');
+            // Trigger reload after a short delay
+            setTimeout(() => loadMyReports(), 1000);
+        } else if (remaining > 60) {
+            el.textContent = `${Math.ceil(remaining / 60)}m left`;
+        } else {
+            el.textContent = `${remaining}s left`;
+        }
+    });
 }
 
 // WETH ABI for wrap/unwrap

@@ -1131,6 +1131,7 @@
         <div class="tabs">
             <button class="tab active" onclick="switchTab('single')">Single Instance</button>
             <button class="tab" onclick="switchTab('overview')">Overview</button>
+            <button class="tab" onclick="switchTab('myreports')">My Reports</button>
             <button class="tab" onclick="switchTab('wrap')">Wrap ETH</button>
         </div>
 
@@ -1182,6 +1183,21 @@
             </div>
             <div id="overviewLoading" class="overview-loading" style="display: none;">Loading reports...</div>
             <div id="reportsGrid" class="reports-grid"></div>
+        </div>
+
+        <div id="myReportsTab" class="tab-content">
+            <div class="overview-controls">
+                <button class="control-btn primary" onclick="loadMyReports()">Refresh</button>
+                <button class="control-btn" onclick="clearMyReports()">Clear All</button>
+                <div class="overview-stats">
+                    <span id="myReportsStats"></span>
+                </div>
+            </div>
+            <div id="myReportsLoading" class="overview-loading" style="display: none;">Loading your reports...</div>
+            <div id="myReportsGrid" class="reports-grid"></div>
+            <div id="myReportsEmpty" class="overview-loading" style="display: none;">
+                No reports yet. Submit an initial report or dispute to track it here.
+            </div>
         </div>
 
         <div id="wrapTab" class="tab-content">
