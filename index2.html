@@ -118,6 +118,70 @@
             color: var(--accent-cyan);
         }
 
+        /* Network Switcher */
+        .network-switcher {
+            display: flex;
+            gap: 8px;
+            background: var(--bg-secondary);
+            padding: 4px;
+            border-radius: 8px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .network-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: transparent;
+            border: none;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .network-btn:hover {
+            color: var(--text-primary);
+            background: var(--bg-elevated);
+        }
+
+        .network-btn.active {
+            background: var(--bg-elevated);
+            color: var(--text-primary);
+        }
+
+        .network-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            transition: background 0.2s ease;
+        }
+
+        .network-btn.base .network-dot {
+            background: #0052ff;
+        }
+
+        .network-btn.ethereum .network-dot {
+            background: #627eea;
+        }
+
+        .network-btn.active .network-dot {
+            box-shadow: 0 0 8px currentColor;
+        }
+
+        .network-btn.base.active .network-dot {
+            box-shadow: 0 0 8px #0052ff;
+        }
+
+        .network-btn.ethereum.active .network-dot {
+            box-shadow: 0 0 8px #627eea;
+        }
+
         /* Wallet */
         .wallet-section {
             display: flex;
@@ -761,6 +825,14 @@
             background: var(--accent-red);
         }
 
+        .report-box.settleable {
+            border-color: rgba(255, 193, 7, 0.3);
+        }
+
+        .report-box.settleable::after {
+            background: #ffc107;
+        }
+
         .report-box-header {
             display: flex;
             justify-content: space-between;
@@ -1118,6 +1190,16 @@
         <header class="header">
             <div class="logo">
                 <div class="logo-text">open<span>Oracle</span></div>
+            </div>
+            <div class="network-switcher">
+                <button class="network-btn base active" onclick="switchNetwork('base')" data-network="base">
+                    <span class="network-dot"></span>
+                    Base
+                </button>
+                <button class="network-btn ethereum" onclick="switchNetwork('ethereum')" data-network="ethereum">
+                    <span class="network-dot"></span>
+                    Ethereum
+                </button>
             </div>
             <div class="wallet-section" id="walletContainer">
                 <button id="connectBtn" class="wallet-btn" onclick="connectWalletManual()">Connect Wallet</button>

@@ -1,15 +1,94 @@
-// Contract addresses on Base
-const DATA_PROVIDER_ADDRESS = '0x4d3F62062d714384178Eb41198BDaBC63F6DeaBD'; // V3 with array overload
-const ORACLE_ADDRESS = '0xdcaa5082564F395819dC2F215716Fe901a1d0A23';
-const BATCHER_ADDRESS = '0xFe5c89448E741D1542afFBf34b9Cf2a3789B82F9'; // Safe batcher
-const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
-const USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
-const BASE_CHAIN_ID = '0x2105'; // 8453
+// ============ NETWORK CONFIGURATIONS ============
+const NETWORKS = {
+    base: {
+        name: 'Base',
+        chainId: '0x2105',
+        chainIdDecimal: 8453,
+        contracts: {
+            dataProvider: '0x4d3F62062d714384178Eb41198BDaBC63F6DeaBD',
+            oracle: '0xdcaa5082564F395819dC2F215716Fe901a1d0A23',
+            batcher: '0xFe5c89448E741D1542afFBf34b9Cf2a3789B82F9',
+            weth: '0x4200000000000000000000000000000000000006',
+            usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
+        },
+        rpcEndpoints: [
+            'https://base.drpc.org',
+            'https://base-rpc.publicnode.com',
+            'https://base.meowrpc.com',
+            'https://base.gateway.tenderly.co',
+            'https://mainnet.base.org'  // Last - heavily rate-limited
+        ],
+        blockExplorer: 'https://basescan.org',
+        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }
+    },
+    ethereum: {
+        name: 'Ethereum',
+        chainId: '0x1',
+        chainIdDecimal: 1,
+        contracts: {
+            dataProvider: '0x5E79b04d8b7A99320e5DE2E9095D3deAc43679bc',
+            oracle: '0xdcaa5082564F395819dC2F215716Fe901a1d0A23', // Same as Base
+            batcher: '0x2472a2385A1c4c2C00c275E308379ACc11be07d4',
+            weth: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+            usdc: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'
+        },
+        rpcEndpoints: [
+            'https://eth.drpc.org',
+            'https://ethereum-rpc.publicnode.com',
+            'https://rpc.ankr.com/eth',
+            'https://eth.meowrpc.com',
+            'https://1rpc.io/eth',
+            'https://cloudflare-eth.com'
+        ],
+        blockExplorer: 'https://etherscan.io',
+        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }
+    }
+};
 
-// Whitelisted token addresses (Base) - pairs with both tokens whitelisted get a checkmark
+// Current network (default to Base)
+let currentNetworkId = 'base';
+
+// Getters for current network values
+function getNetwork() { return NETWORKS[currentNetworkId]; }
+function getContracts() { return getNetwork().contracts; }
+function getRpcEndpoints() { return getNetwork().rpcEndpoints; }
+function getChainId() { return getNetwork().chainId; }
+
+// Dynamic contract address getters
+function get_DATA_PROVIDER_ADDRESS() { return getContracts().dataProvider; }
+function get_ORACLE_ADDRESS() { return getContracts().oracle; }
+function get_BATCHER_ADDRESS() { return getContracts().batcher; }
+function get_WETH_ADDRESS() { return getContracts().weth; }
+function get_USDC_ADDRESS() { return getContracts().usdc; }
+
+// Legacy constants (for compatibility - point to current network)
+let DATA_PROVIDER_ADDRESS = NETWORKS.base.contracts.dataProvider;
+let ORACLE_ADDRESS = NETWORKS.base.contracts.oracle;
+let BATCHER_ADDRESS = NETWORKS.base.contracts.batcher;
+let WETH_ADDRESS = NETWORKS.base.contracts.weth;
+let USDC_ADDRESS = NETWORKS.base.contracts.usdc;
+let CHAIN_ID = NETWORKS.base.chainId;
+
+// Update legacy constants when network changes
+function updateNetworkConstants() {
+    const contracts = getContracts();
+    DATA_PROVIDER_ADDRESS = contracts.dataProvider;
+    ORACLE_ADDRESS = contracts.oracle;
+    BATCHER_ADDRESS = contracts.batcher;
+    WETH_ADDRESS = contracts.weth;
+    USDC_ADDRESS = contracts.usdc;
+    CHAIN_ID = getChainId();
+
+    // Update whitelisted tokens set
+    WHITELISTED_TOKENS.clear();
+    WHITELISTED_TOKENS.add(contracts.weth.toLowerCase());
+    WHITELISTED_TOKENS.add(contracts.usdc.toLowerCase());
+}
+
+// Whitelisted token addresses - pairs with both tokens whitelisted get a checkmark
 const WHITELISTED_TOKENS = new Set([
-    WETH_ADDRESS.toLowerCase(),
-    USDC_ADDRESS.toLowerCase()
+    NETWORKS.base.contracts.weth.toLowerCase(),
+    NETWORKS.base.contracts.usdc.toLowerCase()
 ]);
 
 // Check if both tokens in a report are whitelisted
@@ -343,17 +422,31 @@ const BATCHER_ABI = [
         "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "components": [
+                    {"name": "reportId", "type": "uint256"},
+                    {"name": "stateHash", "type": "bytes32"}
+                ],
+                "name": "settles",
+                "type": "tuple[]"
+            },
+            {"name": "timestamp", "type": "uint256"},
+            {"name": "blockNumber", "type": "uint256"},
+            {"name": "timestampBound", "type": "uint256"},
+            {"name": "blockNumberBound", "type": "uint256"}
+        ],
+        "name": "safeSettleReports",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
     }
 ];
 
 // RPC endpoints for racing
-const RPC_ENDPOINTS = [
-    'https://base.drpc.org',
-    'https://base-rpc.publicnode.com',
-    'https://base.meowrpc.com',
-    'https://base.gateway.tenderly.co',
-    'https://mainnet.base.org'  // Last - heavily rate-limited
-];
+// RPC_ENDPOINTS now comes from getNetwork().rpcEndpoints
 
 // Global state
 let provider = null;
@@ -374,12 +467,130 @@ let currentDisputeSwapInfo = null; // Store calculated swap requirements for dis
 let myReportsTimerInterval = null; // Timer for My Reports countdowns
 let pollingInterval = null; // Fallback polling for report updates (events only use first RPC)
 
+// Initialize providers for current network
+function initProviders() {
+    const rpcEndpoints = getRpcEndpoints();
+    providers = rpcEndpoints.map(url => new ethers.providers.JsonRpcProvider(url));
+    provider = providers[0];
+
+    // Create oracle contract for event listening
+    oracleContract = new ethers.Contract(ORACLE_ADDRESS, ORACLE_ABI, provider);
+
+    console.log(`Initialized ${providers.length} RPC providers for ${getNetwork().name}`);
+}
+
+// Switch to a different network
+async function switchNetwork(networkId) {
+    if (!NETWORKS[networkId]) {
+        console.error('Unknown network:', networkId);
+        return false;
+    }
+
+    if (networkId === currentNetworkId) {
+        console.log('Already on', networkId);
+        return true;
+    }
+
+    console.log(`Switching from ${currentNetworkId} to ${networkId}...`);
+
+    // Clean up current state
+    cleanupEventListeners();
+    stopMyReportsTimer();
+
+    // Switch network
+    currentNetworkId = networkId;
+    updateNetworkConstants();
+
+    // Reinitialize providers
+    initProviders();
+
+    // Clear current report state
+    currentReport = null;
+    currentReportId = null;
+    currentDisputeInfo = null;
+    currentDisputeSwapInfo = null;
+
+    // Clear UI
+    document.getElementById('resultBox').innerHTML = '';
+    document.getElementById('reportsGrid').innerHTML = '';
+    document.getElementById('myReportsGrid').innerHTML = '';
+    document.getElementById('reportId').value = '';
+
+    // Update UI to show current network
+    updateNetworkUI();
+
+    // Reload current tab content for the new network
+    if (document.getElementById('overviewTab').classList.contains('active')) {
+        loadOverview(true);
+    } else if (document.getElementById('myReportsTab').classList.contains('active')) {
+        loadMyReports();
+    }
+
+    // Request wallet to switch network if connected
+    if (window.ethereum && userAddress) {
+        try {
+            await window.ethereum.request({
+                method: 'wallet_switchEthereumChain',
+                params: [{ chainId: getChainId() }]
+            });
+            // Recreate signer for new network
+            const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
+            signer = web3Provider.getSigner();
+        } catch (switchError) {
+            // Chain not added to wallet - try to add it
+            if (switchError.code === 4902) {
+                const network = getNetwork();
+                try {
+                    await window.ethereum.request({
+                        method: 'wallet_addEthereumChain',
+                        params: [{
+                            chainId: network.chainId,
+                            chainName: network.name,
+                            nativeCurrency: network.nativeCurrency,
+                            rpcUrls: [network.rpcEndpoints[0]],
+                            blockExplorerUrls: [network.blockExplorer]
+                        }]
+                    });
+                    // Recreate signer for new network
+                    const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
+                    signer = web3Provider.getSigner();
+                } catch (addError) {
+                    console.error('Failed to add network:', addError);
+                }
+            } else {
+                console.error('Failed to switch network:', switchError);
+            }
+        }
+    }
+
+    console.log(`Switched to ${getNetwork().name}`);
+    return true;
+}
+
+// Update network indicator in UI
+function updateNetworkUI() {
+    // Update button active states
+    document.querySelectorAll('.network-btn').forEach(btn => {
+        const network = btn.getAttribute('data-network');
+        if (network === currentNetworkId) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+
+    // Update any network name displays
+    const networkName = document.getElementById('networkName');
+    if (networkName) {
+        networkName.textContent = getNetwork().name;
+    }
+}
+
 // Initialize providers and start price feeds
 async function init() {
     try {
-        // Create providers for all endpoints
-        providers = RPC_ENDPOINTS.map(url => new ethers.providers.JsonRpcProvider(url));
-        provider = providers[0]; // Default for gas price etc
+        // Initialize providers for current network
+        initProviders();
 
         // Start gas price updates
         updateGasPrice();
@@ -388,11 +599,8 @@ async function init() {
         // Start ETH price feed via Coinbase
         connectCoinbaseWs();
 
-        console.log('Initialized', providers.length, 'RPC providers');
-
-        // Create oracle contract for event listening
-        oracleContract = new ethers.Contract(ORACLE_ADDRESS, ORACLE_ABI, provider);
-        console.log('Oracle contract ready for events');
+        // Update network UI
+        updateNetworkUI();
 
         // Setup wallet event listeners
         setupWalletListeners();
@@ -514,9 +722,10 @@ function startCountdown(reportTimestamp, settlementTime) {
         console.log(`Countdown tick: remaining=${remaining}s`);
 
         if (remaining <= 0) {
-            el.textContent = 'Ready';
-            el.className = 'countdown-timer ready';
+            // Refresh display to show Settle button
             stopCountdown();
+            refreshCurrentReport();
+            return;
         } else {
             // Format as mm:ss or just seconds
             if (remaining >= 60) {
@@ -672,10 +881,11 @@ async function raceGetData(reportId, onFresherData = null) {
         ])
             .then(([result, blockNum]) => {
                 const elapsed = (performance.now() - startTime).toFixed(0);
-                const rpcName = RPC_ENDPOINTS[i].split('//')[1].split('/')[0];
+                const rpcEndpoints = getRpcEndpoints();
+                const rpcName = rpcEndpoints[i].split('//')[1].split('/')[0];
                 console.log(`RPC ${i} (${rpcName}) responded in ${elapsed}ms at block ${blockNum}`);
 
-                const response = { result, rpc: RPC_ENDPOINTS[i], elapsed, blockNum };
+                const response = { result, rpc: rpcEndpoints[i], elapsed, blockNum };
 
                 if (!firstResolved) {
                     // First response - resolve immediately and set baseline
@@ -771,7 +981,7 @@ async function connectWallet() {
         }
 
         userAddress = accounts[0];
-        await ensureBaseChain();
+        await ensureCorrectChain();
 
         const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
         signer = web3Provider.getSigner();
@@ -831,7 +1041,7 @@ async function connectWalletManual() {
 // Finish wallet connection after risk acceptance
 async function finishWalletConnection() {
     try {
-        await ensureBaseChain();
+        await ensureCorrectChain();
 
         const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
         signer = web3Provider.getSigner();
@@ -849,25 +1059,27 @@ async function finishWalletConnection() {
 // Make finishWalletConnection available to modal
 window.finishWalletConnection = finishWalletConnection;
 
-// Ensure we're on Base chain
-async function ensureBaseChain() {
+// Ensure we're on the correct chain for current network
+async function ensureCorrectChain() {
     const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-    if (chainId !== BASE_CHAIN_ID) {
+    const targetChainId = getChainId();
+    if (chainId !== targetChainId) {
         try {
             await window.ethereum.request({
                 method: 'wallet_switchEthereumChain',
-                params: [{ chainId: BASE_CHAIN_ID }]
+                params: [{ chainId: targetChainId }]
             });
         } catch (switchError) {
             if (switchError.code === 4902) {
+                const network = getNetwork();
                 await window.ethereum.request({
                     method: 'wallet_addEthereumChain',
                     params: [{
-                        chainId: BASE_CHAIN_ID,
-                        chainName: 'Base',
-                        nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
-                        rpcUrls: ['https://mainnet.base.org'],
-                        blockExplorerUrls: ['https://basescan.org']
+                        chainId: targetChainId,
+                        chainName: network.name,
+                        nativeCurrency: network.nativeCurrency,
+                        rpcUrls: [network.rpcEndpoints[0]],
+                        blockExplorerUrls: [network.blockExplorer]
                     }]
                 });
             } else {
@@ -926,8 +1138,8 @@ function setupWalletListeners() {
 
     window.ethereum.on('chainChanged', (chainId) => {
         console.log('chainChanged:', chainId);
-        if (chainId !== BASE_CHAIN_ID) {
-            showError('Please switch to Base network');
+        if (chainId !== getChainId()) {
+            showError(`Please switch to ${getNetwork().name} network`);
         }
     });
 }
@@ -1317,8 +1529,30 @@ function buildOracleParams(report) {
     };
 }
 
+// Get gas overrides with priority fee = 25% of base fee
+async function getGasOverrides() {
+    try {
+        const feeData = await providers[0].getFeeData();
+        if (feeData.lastBaseFeePerGas) {
+            // EIP-1559: set priority to 25% of base, max fee to 125% of base
+            const baseFee = feeData.lastBaseFeePerGas;
+            const priorityFee = baseFee.div(4); // 25%
+            const maxFee = baseFee.add(priorityFee); // base + 25%
+            console.log(`Gas override: base=${ethers.utils.formatUnits(baseFee, 'gwei')} gwei, priority=${ethers.utils.formatUnits(priorityFee, 'gwei')} gwei`);
+            return {
+                maxPriorityFeePerGas: priorityFee,
+                maxFeePerGas: maxFee
+            };
+        }
+    } catch (e) {
+        console.warn('Failed to get gas overrides, using defaults:', e);
+    }
+    return {}; // Fall back to wallet defaults
+}
+
 // Get fresh block info for safe batcher time bounds - use highest block from all RPCs
-async function getFreshBlockInfo() {
+// forSettle=true uses relaxed bounds (5 min), forSettle=false uses strict bounds (1 min)
+async function getFreshBlockInfo(forSettle = false) {
     const blockPromises = providers.map((p, i) =>
         p.getBlock('latest')
             .then(block => {
@@ -1343,12 +1577,26 @@ async function getFreshBlockInfo() {
     );
     console.log(`Using highest block: ${block.number}, timestamp: ${block.timestamp}`);
 
-    return {
-        timestamp: block.timestamp,
-        blockNumber: block.number,
-        timestampBound: 60,  // +60 seconds
-        blockNumberBound: 30  // +30 blocks
-    };
+    // Network-aware block bounds: L1 has 12s blocks, L2 has 2s blocks
+    const isL1 = currentNetworkId === 'ethereum';
+
+    if (forSettle) {
+        // Relaxed bounds for settle (5 min / 25 blocks)
+        return {
+            timestamp: block.timestamp,
+            blockNumber: block.number,
+            timestampBound: 300,  // +5 minutes
+            blockNumberBound: 25  // +25 blocks (~5 min on L1)
+        };
+    } else {
+        // Strict bounds for report/dispute (1 min)
+        return {
+            timestamp: block.timestamp,
+            blockNumber: block.number,
+            timestampBound: 60,  // +60 seconds
+            blockNumberBound: isL1 ? 5 : 30  // L1: 5 blocks (~1 min), L2: 30 blocks (~1 min)
+        };
+    }
 }
 
 async function submitDispute() {
@@ -1469,6 +1717,7 @@ async function submitDispute() {
 
         console.log('Calling batcher.disputeReportSafe...');
 
+        const gasOverrides = await getGasOverrides();
         const tx = await batcher.disputeReportSafe(
             disputeData,
             oracleParams,
@@ -1477,7 +1726,8 @@ async function submitDispute() {
             blockInfo.timestamp,
             blockInfo.blockNumber,
             blockInfo.timestampBound,
-            blockInfo.blockNumberBound
+            blockInfo.blockNumberBound,
+            gasOverrides
         );
         console.log('TX sent:', tx.hash);
 
@@ -1655,6 +1905,7 @@ async function submitInitialReport() {
             throw gasError;
         }
 
+        const gasOverrides = await getGasOverrides();
         const tx = await batcher.submitInitialReportSafe(
             reportData,
             oracleParams,
@@ -1663,7 +1914,8 @@ async function submitInitialReport() {
             blockInfo.timestamp,
             blockInfo.blockNumber,
             blockInfo.timestampBound,
-            blockInfo.blockNumberBound
+            blockInfo.blockNumberBound,
+            gasOverrides
         );
         console.log('TX sent:', tx.hash);
 
@@ -1705,15 +1957,35 @@ async function settleReport(reportId) {
         console.log('=== Settle Report Debug ===');
         console.log('reportId:', reportId);
 
-        const oracle = new ethers.Contract(ORACLE_ADDRESS, ORACLE_ABI, signer);
+        // Get report data to get stateHash
+        const dataProvider = new ethers.Contract(DATA_PROVIDER_ADDRESS, DATA_PROVIDER_ABI, providers[0]);
+        const reportData = await dataProvider['getData(uint256)'](reportId);
+        const report = reportData[0];
+        console.log('stateHash:', report.stateHash);
+
+        // Get fresh block info (relaxed bounds for settle)
+        const blockInfo = await getFreshBlockInfo(true);
+        console.log('blockInfo:', blockInfo);
+
+        const batcher = new ethers.Contract(BATCHER_ADDRESS, BATCHER_ABI, signer);
+
+        const settleData = [{
+            reportId: reportId,
+            stateHash: report.stateHash
+        }];
 
         // Estimate gas first
         try {
-            const gasEstimate = await oracle.estimateGas.settle(reportId);
+            const gasEstimate = await batcher.estimateGas.safeSettleReports(
+                settleData,
+                blockInfo.timestamp,
+                blockInfo.blockNumber,
+                blockInfo.timestampBound,
+                blockInfo.blockNumberBound
+            );
             console.log('Gas estimate:', gasEstimate.toString());
         } catch (gasError) {
             console.error('Gas estimation failed:', gasError);
-            // Try to decode revert reason
             if (gasError.reason) {
                 showError('Cannot settle: ' + gasError.reason);
                 return;
@@ -1721,7 +1993,15 @@ async function settleReport(reportId) {
             throw gasError;
         }
 
-        const tx = await oracle.settle(reportId);
+        const gasOverrides = await getGasOverrides();
+        const tx = await batcher.safeSettleReports(
+            settleData,
+            blockInfo.timestamp,
+            blockInfo.blockNumber,
+            blockInfo.timestampBound,
+            blockInfo.blockNumberBound,
+            gasOverrides
+        );
         console.log('TX sent:', tx.hash);
 
         const receipt = await tx.wait();
@@ -1953,14 +2233,10 @@ function renderReport(report, token1Info, token2Info) {
         const settlementTimeSecs = typeof report.settlementTime === 'number' ? report.settlementTime : report.settlementTime.toNumber();
         const settleTs = reportTs + settlementTimeSecs;
         const remaining = settleTs - now;
-        const initialTimeStr = remaining > 0 ? (remaining >= 60 ? `${Math.floor(remaining / 60)}m ${remaining % 60}s` : `${remaining}s`) : 'Ready';
-        const canDispute = report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT && isSettlementTimeValid(report);
-        const disputeBtn = canDispute ? `<button class="dispute-btn" onclick="toggleDisputePane()">Dispute</button>` : '';
+        const isSettleable = remaining <= 0;
 
-        // Add settle button if ready
-        let settleBtn = '';
-        if (remaining <= 0) {
-            // Calculate net reward for display
+        if (isSettleable) {
+            // Settleable - just show Settle button with net reward
             const settleGasCost = calculateSettleGasCost(report.callbackGasLimit);
             let netRewardStr = '';
             if (settleGasCost && report.settlerReward) {
@@ -1970,10 +2246,14 @@ function renderReport(report, token1Info, token2Info) {
                 const rewardClass = netRewardUsd >= 0 ? 'color: #10b981;' : 'color: #ef4444;';
                 netRewardStr = `<span style="font-size: 12px; ${rewardClass} margin-left: 8px;">Net: ${ethPrice ? '$' + netRewardUsd.toFixed(4) : netRewardEth.toFixed(6) + ' ETH'}</span>`;
             }
-            settleBtn = `<button class="settle-btn" onclick="settleReport(${report.reportId})" style="background: #10b981; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: 500; margin-left: 8px;">Settle</button>${netRewardStr}`;
+            statusBadge = `<span class="pending-badge">Pending Settlement</span><button class="settle-btn" onclick="settleReport(${report.reportId})" style="background: #10b981; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: 500; margin-left: 8px;">Settle</button>${netRewardStr}`;
+        } else {
+            // Not settleable yet - show countdown and dispute button
+            const timeStr = remaining >= 60 ? `${Math.floor(remaining / 60)}m ${remaining % 60}s` : `${remaining}s`;
+            const canDispute = report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT && isSettlementTimeValid(report);
+            const disputeBtn = canDispute ? `<button class="dispute-btn" onclick="toggleDisputePane()">Dispute</button>` : '';
+            statusBadge = `<span class="pending-badge">Pending Settlement</span><span id="settlementCountdown" class="countdown-timer">${timeStr}</span>${disputeBtn}`;
         }
-
-        statusBadge = `<span class="pending-badge">Pending Settlement</span><span id="settlementCountdown" class="countdown-timer ${remaining <= 0 ? 'ready' : ''}">${initialTimeStr}</span>${disputeBtn}${settleBtn}`;
     } else {
         const rewardEth = parseFloat(ethers.utils.formatUnits(netReporterReward, 18));
         const rewardUsd = ethPrice ? (rewardEth * ethPrice).toPrecision(2) : '??';
@@ -2536,6 +2816,7 @@ async function loadOverview(autoDetect = false) {
 
         let awaiting = 0;
         let disputed = 0;
+        let settleable = 0;
         let skipped = 0;
 
         const grid = document.getElementById('reportsGrid');
@@ -2585,65 +2866,96 @@ async function loadOverview(autoDetect = false) {
                 valueUsd = ethPrice ? (rewardEth * ethPrice) : 0;
                 valueClass = valueUsd >= 0 ? 'profit' : 'loss';
             } else {
-                // Has initial report - show dispute opportunity
-                statusClass = 'disputed';
-                statusText = 'DISPUTE POSSIBLE';
-                valueLabel = 'Immediate Profit';
-                disputed++;
+                // Has initial report - check if settleable or disputable
+                const reportTs = typeof report.reportTimestamp === 'number' ? report.reportTimestamp : report.reportTimestamp.toNumber();
+                const settlementTimeSecs = typeof report.settlementTime === 'number' ? report.settlementTime : report.settlementTime.toNumber();
+                const settleTs = reportTs + settlementTimeSecs;
+                const now = Math.floor(Date.now() / 1000);
+                const isSettleable = now >= settleTs;
 
-                // Calculate immediate profit: |token distance| - swap fees - burn fees
-                // Token distance = difference between reported price and current ETH price
-                const token1Addr = report.token1.toLowerCase();
-                const token2Addr = report.token2.toLowerCase();
-                const isToken1Weth = token1Addr === WETH_ADDRESS.toLowerCase();
-                const isToken2Usdc = token2Addr === USDC_ADDRESS.toLowerCase();
-                const isToken1Usdc = token1Addr === USDC_ADDRESS.toLowerCase();
-                const isToken2Weth = token2Addr === WETH_ADDRESS.toLowerCase();
+                if (isSettleable) {
+                    statusClass = 'settleable';
+                    statusText = 'READY TO SETTLE';
+                    valueLabel = 'Settle Net';
+                    settleable++;
 
-                if (ethPrice && ((isToken1Weth && isToken2Usdc) || (isToken1Usdc && isToken2Weth))) {
-                    let wethAmount, usdcAmount, wethDecimals = 18, usdcDecimals = 6;
-                    if (isToken1Weth) {
-                        wethAmount = parseFloat(ethers.utils.formatUnits(report.currentAmount1, wethDecimals));
-                        usdcAmount = parseFloat(ethers.utils.formatUnits(report.currentAmount2, usdcDecimals));
-                    } else {
-                        wethAmount = parseFloat(ethers.utils.formatUnits(report.currentAmount2, wethDecimals));
-                        usdcAmount = parseFloat(ethers.utils.formatUnits(report.currentAmount1, usdcDecimals));
-                    }
-
-                    // Reported price vs current price
-                    const reportedPrice = wethAmount > 0 ? usdcAmount / wethAmount : 0;
-                    const priceDiff = Math.abs(ethPrice - reportedPrice);
-                    const tokenDistanceUsd = priceDiff * wethAmount;
-
-                    // Calculate fees in USD (fees are on the WETH amount)
-                    const feePercent = report.feePercentage / 10000000; // 1e7 precision
-                    const burnPercent = report.protocolFee / 10000000;
-                    const swapFeeUsd = wethAmount * feePercent * ethPrice;
-                    const burnFeeUsd = wethAmount * burnPercent * ethPrice;
-
-                    // Dispute gas cost in USD
-                    const disputeGasCost = calculateDisputeGasCost();
-                    const disputeGasCostUsd = disputeGasCost ? parseFloat(ethers.utils.formatUnits(disputeGasCost, 18)) * ethPrice : 0;
-
-                    // Settle cost if disputer wins (they become reporter and may need to self-settle)
-                    let settleCostUsd = 0;
+                    // For settleable: just show settler reward - gas cost
                     const settleGasCost = calculateSettleGasCost(report.callbackGasLimit);
                     if (settleGasCost && report.settlerReward) {
-                        const netSettlerReward = report.settlerReward.sub(settleGasCost);
-                        if (netSettlerReward.lt(0)) {
-                            settleCostUsd = parseFloat(ethers.utils.formatUnits(netSettlerReward.abs(), 18)) * ethPrice;
-                        }
+                        const netReward = report.settlerReward.sub(settleGasCost);
+                        const netRewardEth = parseFloat(ethers.utils.formatUnits(netReward, 18));
+                        valueUsd = ethPrice ? netRewardEth * ethPrice : 0;
+                    } else {
+                        valueUsd = 0;
                     }
-
-                    valueUsd = tokenDistanceUsd - swapFeeUsd - burnFeeUsd - disputeGasCostUsd - settleCostUsd;
+                    valueClass = valueUsd >= 0 ? 'profit' : 'loss';
                 } else {
-                    valueUsd = 0; // Unknown pair
+                    statusClass = 'disputed';
+                    statusText = 'DISPUTE POSSIBLE';
+                    valueLabel = 'Immediate Profit';
+                    disputed++;
+
+                    // Calculate immediate profit: |token distance| - swap fees - burn fees
+                    // Token distance = difference between reported price and current ETH price
+                    const token1Addr = report.token1.toLowerCase();
+                    const token2Addr = report.token2.toLowerCase();
+                    const isToken1Weth = token1Addr === WETH_ADDRESS.toLowerCase();
+                    const isToken2Usdc = token2Addr === USDC_ADDRESS.toLowerCase();
+                    const isToken1Usdc = token1Addr === USDC_ADDRESS.toLowerCase();
+                    const isToken2Weth = token2Addr === WETH_ADDRESS.toLowerCase();
+
+                    if (ethPrice && ((isToken1Weth && isToken2Usdc) || (isToken1Usdc && isToken2Weth))) {
+                        let wethAmount, usdcAmount, wethDecimals = 18, usdcDecimals = 6;
+                        if (isToken1Weth) {
+                            wethAmount = parseFloat(ethers.utils.formatUnits(report.currentAmount1, wethDecimals));
+                            usdcAmount = parseFloat(ethers.utils.formatUnits(report.currentAmount2, usdcDecimals));
+                        } else {
+                            wethAmount = parseFloat(ethers.utils.formatUnits(report.currentAmount2, wethDecimals));
+                            usdcAmount = parseFloat(ethers.utils.formatUnits(report.currentAmount1, usdcDecimals));
+                        }
+
+                        // Reported price vs current price
+                        const reportedPrice = wethAmount > 0 ? usdcAmount / wethAmount : 0;
+                        const priceDiff = Math.abs(ethPrice - reportedPrice);
+                        const tokenDistanceUsd = priceDiff * wethAmount;
+
+                        // Calculate fees in USD (fees are on the WETH amount)
+                        const feePercent = report.feePercentage / 10000000; // 1e7 precision
+                        const burnPercent = report.protocolFee / 10000000;
+                        const swapFeeUsd = wethAmount * feePercent * ethPrice;
+                        const burnFeeUsd = wethAmount * burnPercent * ethPrice;
+
+                        // Dispute gas cost in USD
+                        const disputeGasCost = calculateDisputeGasCost();
+                        const disputeGasCostUsd = disputeGasCost ? parseFloat(ethers.utils.formatUnits(disputeGasCost, 18)) * ethPrice : 0;
+
+                        // Settle cost if disputer wins (they become reporter and may need to self-settle)
+                        let settleCostUsd = 0;
+                        const settleGasCost = calculateSettleGasCost(report.callbackGasLimit);
+                        if (settleGasCost && report.settlerReward) {
+                            const netSettlerReward = report.settlerReward.sub(settleGasCost);
+                            if (netSettlerReward.lt(0)) {
+                                settleCostUsd = parseFloat(ethers.utils.formatUnits(netSettlerReward.abs(), 18)) * ethPrice;
+                            }
+                        }
+
+                        valueUsd = tokenDistanceUsd - swapFeeUsd - burnFeeUsd - disputeGasCostUsd - settleCostUsd;
+                    } else {
+                        valueUsd = 0; // Unknown pair
+                    }
+                    valueClass = valueUsd >= 0 ? 'profit' : 'loss';
                 }
-                valueClass = valueUsd >= 0 ? 'profit' : 'loss';
             }
 
             const valueStr = Math.abs(valueUsd) >= 0.01 ? `$${valueUsd.toFixed(2)}` : `$${valueUsd.toFixed(4)}`;
             const whitelistIcon = getWhitelistIcon(report.token1, report.token2);
+
+            // Only show settlement time row if not already settleable
+            const settleRow = statusClass === 'settleable' ? '' : `
+                <div class="report-box-row">
+                    <span class="report-box-label">Settle</span>
+                    <span class="report-box-value">${settlementStr}</span>
+                </div>`;
 
             html += `
             <div class="report-box ${statusClass}" onclick="viewReport(${report.reportId})">
@@ -2654,17 +2966,13 @@ async function loadOverview(autoDetect = false) {
                 <div class="report-box-row">
                     <span class="report-box-label">${valueLabel}</span>
                     <span class="report-box-value ${valueClass}">${valueStr}</span>
-                </div>
-                <div class="report-box-row">
-                    <span class="report-box-label">Settle</span>
-                    <span class="report-box-value">${settlementStr}</span>
-                </div>
+                </div>${settleRow}
             </div>`;
         }
 
         grid.innerHTML = html || '<div class="overview-loading">No unsettled reports in this range</div>';
         document.getElementById('overviewStats').textContent =
-            `${awaiting} open, ${disputed} disputable, ${skipped} skipped (high gas)`;
+            `${awaiting} open, ${disputed} disputable, ${settleable} settleable, ${skipped} skipped (high gas)`;
 
     } catch (e) {
         console.error('Overview error:', e);
@@ -2684,11 +2992,13 @@ function viewReport(reportId) {
 
 // ============ MY REPORTS - LocalStorage Functions ============
 
-const MY_REPORTS_KEY = 'openoracle_my_reports';
+function getMyReportsKey() {
+    return `openoracle_my_reports_${currentNetworkId}`;
+}
 
 function getMyReportIds() {
     try {
-        const stored = localStorage.getItem(MY_REPORTS_KEY);
+        const stored = localStorage.getItem(getMyReportsKey());
         return stored ? JSON.parse(stored) : [];
     } catch (e) {
         console.error('Error loading my reports:', e);
@@ -2706,7 +3016,7 @@ function saveReportId(reportId) {
     if (!reportIds.includes(id)) {
         reportIds.push(id);
         reportIds.sort((a, b) => b - a); // Most recent first
-        localStorage.setItem(MY_REPORTS_KEY, JSON.stringify(reportIds));
+        localStorage.setItem(getMyReportsKey(), JSON.stringify(reportIds));
         console.log('Saved. Current My Reports:', reportIds);
     } else {
         console.log('Report ID already in My Reports');
@@ -2717,12 +3027,12 @@ function removeReportId(reportId) {
     const reportIds = getMyReportIds();
     const id = parseInt(reportId);
     const filtered = reportIds.filter(r => r !== id);
-    localStorage.setItem(MY_REPORTS_KEY, JSON.stringify(filtered));
+    localStorage.setItem(getMyReportsKey(), JSON.stringify(filtered));
 }
 
 function clearMyReports() {
     if (confirm('Are you sure you want to clear all tracked reports?')) {
-        localStorage.removeItem(MY_REPORTS_KEY);
+        localStorage.removeItem(getMyReportsKey());
         loadMyReports();
     }
 }
