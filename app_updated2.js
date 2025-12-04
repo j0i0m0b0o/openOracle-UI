@@ -7,7 +7,7 @@ const NETWORKS = {
         contracts: {
             dataProvider: '0x4d3F62062d714384178Eb41198BDaBC63F6DeaBD',
             oracle: '0xdcaa5082564F395819dC2F215716Fe901a1d0A23',
-            batcher: '0xFe5c89448E741D1542afFBf34b9Cf2a3789B82F9',
+            batcher: '0x7D3BA4745894f438e9e2815A3121f808de574746',
             weth: '0x4200000000000000000000000000000000000006',
             usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
         },
@@ -28,7 +28,7 @@ const NETWORKS = {
         contracts: {
             dataProvider: '0x5E79b04d8b7A99320e5DE2E9095D3deAc43679bc',
             oracle: '0xdcaa5082564F395819dC2F215716Fe901a1d0A23', // Same as Base
-            batcher: '0x2472a2385A1c4c2C00c275E308379ACc11be07d4',
+            batcher: '0x4e720AF297e740f2761278e99DbC5fD0999B4952',
             weth: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
             usdc: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'
         },
@@ -518,6 +518,9 @@ async function switchNetwork(networkId) {
 
     // Update UI to show current network
     updateNetworkUI();
+
+    // Immediately fetch gas price for new network
+    updateGasPrice();
 
     // Reload current tab content for the new network
     if (document.getElementById('overviewTab').classList.contains('active')) {
@@ -1264,7 +1267,18 @@ function updateBreakevenVolatility() {
     const b = rewardEth / wethAmount;
     const breakeven = (b + feeRate) / (1 + feeRate) * 100;
 
-    breakevenValueEl.textContent = `±${breakeven.toFixed(2)}%`;
+    // Format settlement time for display
+    let timeStr;
+    if (report.timeType) {
+        // Seconds - convert to minutes
+        const mins = report.settlementTime / 60;
+        timeStr = mins >= 1 ? `${mins.toFixed(0)} min` : `${report.settlementTime}s`;
+    } else {
+        // Blocks
+        timeStr = `${report.settlementTime} blocks`;
+    }
+
+    breakevenValueEl.textContent = `±${breakeven.toFixed(2)}% for ${timeStr}`;
     breakevenValueEl.className = `pane-value ${breakeven > 0.1 ? 'positive' : breakeven > 0.01 ? '' : 'negative'}`;
     breakevenRow.style.display = 'flex';
 }
@@ -1422,7 +1436,15 @@ function updateDisputeRequirements() {
         const feeRate = report.feePercentage / 10000000; // swap fee rate
         const b = amount2Value > 0 ? immediatePnL / amount2Value : 0;
         const breakeven = (b + feeRate) / (1 + feeRate) * 100;
-        breakevenEl.textContent = `±${breakeven.toFixed(2)}%`;
+        // Format settlement time for display
+        let timeStr;
+        if (report.timeType) {
+            const mins = report.settlementTime / 60;
+            timeStr = mins >= 1 ? `${mins.toFixed(0)} min` : `${report.settlementTime}s`;
+        } else {
+            timeStr = `${report.settlementTime} blocks`;
+        }
+        breakevenEl.textContent = `±${breakeven.toFixed(2)}% for ${timeStr}`;
         breakevenEl.className = `pane-value ${breakeven > 0.1 ? 'positive' : breakeven > 0.01 ? '' : 'negative'}`;
     }
 
@@ -1468,22 +1490,32 @@ function updateDisputeRequirements() {
     // Build transfer in string for Token2 Swap
     const token2SwapTransferStr = `${formatTokenAmount(token2SwapInToken1, token1Info.decimals, token1Info.symbol)} + ${formatTokenAmount(token2SwapInToken2, token2Info.decimals, token2Info.symbol)}`;
 
-    // If we can calculate USD, use that; otherwise just show both options
+    // Recommend based on which token the user thinks is overvalued in the current report
+    // If user's price (newAmount2/newAmount1) > report's price (currentAmount2/currentAmount1),
+    // user thinks token1 is worth MORE than reported → token1 is undervalued → swap token2
+    // If user's price < report's price, token1 is overvalued → swap token1
     let recommendToken1 = true;
-    if (token1SwapUsd !== null && token2SwapUsd !== null) {
-        recommendToken1 = token1SwapUsd <= token2SwapUsd;
-        if (recommendToken1) {
-            recommendedSwapEl.textContent = token1Info.symbol;
-            transferInEl.innerHTML = token1SwapTransferStr;
-        } else {
-            recommendedSwapEl.textContent = token2Info.symbol;
-            transferInEl.innerHTML = token2SwapTransferStr;
-        }
-    } else {
-        // Unknown pair - just show token1 swap option
+
+    if (newAmount1Float > 0 && currentAmount1Float > 0) {
+        const userPrice = amount2Value / newAmount1Float;  // user's implied token2 per token1
+        const reportPrice = currentAmount2Float / currentAmount1Float;  // report's token2 per token1
+
+        // If user thinks price is higher → token1 undervalued in report → swap token2
+        // If user thinks price is lower → token1 overvalued in report → swap token1
+        recommendToken1 = userPrice < reportPrice;
+    }
+
+    if (recommendToken1) {
         recommendedSwapEl.textContent = token1Info.symbol;
         transferInEl.innerHTML = token1SwapTransferStr;
+    } else {
+        recommendedSwapEl.textContent = token2Info.symbol;
+        transferInEl.innerHTML = token2SwapTransferStr;
     }
+
+    // Display position worth (newAmount1 + newAmount2)
+    const positionWorthEl = document.getElementById('disputePositionWorth');
+    positionWorthEl.textContent = `${formatTokenAmount(newAmount1, token1Info.decimals, token1Info.symbol)} + ${formatTokenAmount(newAmount2, token2Info.decimals, token2Info.symbol)}`;
 
     // Store swap info for submission
     currentDisputeSwapInfo = {
@@ -2335,7 +2367,7 @@ function renderReport(report, token1Info, token2Info) {
             </div>
             <div id="disputeRequirements" class="dispute-requirements" style="display: none;">
                 <div class="pane-row">
-                    <div class="pane-label">Est. Immediate PnL (assuming correct ${token2Info.symbol} amount above)</div>
+                    <div class="pane-label">Est. Immediate PnL (assuming correct ${token2Info.symbol} amount above) <span class="tooltip" data-tip="If you choose the wrong ${token2Info.symbol} amount, you stand to lose up to the absolute difference between New ${token1Info.symbol} Amount and New ${token2Info.symbol} Amount.">(?)</span></div>
                     <div class="pane-value" id="disputePnL">--</div>
                 </div>
                 <div class="pane-row">
@@ -2346,15 +2378,12 @@ function renderReport(report, token1Info, token2Info) {
                     <div class="pane-value" id="disputeBreakeven">--</div>
                 </div>
                 <div class="pane-row">
-                    <div class="pane-label">
-                        Recommended Swap (token in current report with less value)
-                        <span class="tooltip" data-tip="Choosing the token with less value in the current report lets you earn the absolute difference in token values.">(?)</span>
-                    </div>
-                    <div class="pane-value" id="recommendedSwap">--</div>
+                    <div class="pane-label">You Transfer In (swapping <span id="recommendedSwap">--</span>)</div>
+                    <div class="pane-value" id="disputeTransferIn">--</div>
                 </div>
                 <div class="pane-row">
-                    <div class="pane-label">You Transfer In</div>
-                    <div class="pane-value" id="disputeTransferIn">--</div>
+                    <div class="pane-label">Your Position Will Be Worth</div>
+                    <div class="pane-value" id="disputePositionWorth">--</div>
                 </div>
             </div>
             <div class="pane-actions">
