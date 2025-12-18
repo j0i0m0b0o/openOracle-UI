@@ -5,9 +5,9 @@ const NETWORKS = {
         chainId: '0x2105',
         chainIdDecimal: 8453,
         contracts: {
-            dataProvider: '0x4d3F62062d714384178Eb41198BDaBC63F6DeaBD',
-            oracle: '0xdcaa5082564F395819dC2F215716Fe901a1d0A23',
-            batcher: '0x7D3BA4745894f438e9e2815A3121f808de574746',
+            dataProvider: '0x4ccfb84f7EB35ee23c2e91f12e9CE4Ea2927d23C',
+            oracle: '0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752',
+            batcher: '0xc7657a021A8860887DFb20ACA9b583D5bc33F23e',
             weth: '0x4200000000000000000000000000000000000006',
             usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
         },
@@ -26,9 +26,9 @@ const NETWORKS = {
         chainId: '0x1',
         chainIdDecimal: 1,
         contracts: {
-            dataProvider: '0x5E79b04d8b7A99320e5DE2E9095D3deAc43679bc',
-            oracle: '0xdcaa5082564F395819dC2F215716Fe901a1d0A23', // Same as Base
-            batcher: '0x4e720AF297e740f2761278e99DbC5fD0999B4952',
+            dataProvider: '0xebc117d55A9303C72E662d80b6b63B2514a68fd3',
+            oracle: '0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752', // Same as Base
+            batcher: '0x6D6b37618987A7E1229Af087c3Ff1283cE3BbEeF',
             weth: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
             usdc: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'
         },
@@ -62,6 +62,7 @@ function get_WETH_ADDRESS() { return getContracts().weth; }
 function get_USDC_ADDRESS() { return getContracts().usdc; }
 
 // Legacy constants (for compatibility - point to current network)
+// These are dynamically updated by updateNetworkConstants() when network changes
 let DATA_PROVIDER_ADDRESS = NETWORKS.base.contracts.dataProvider;
 let ORACLE_ADDRESS = NETWORKS.base.contracts.oracle;
 let BATCHER_ADDRESS = NETWORKS.base.contracts.batcher;
@@ -2319,7 +2320,7 @@ function renderReport(report, token1Info, token2Info) {
                 <div class="pane-value">${formatTokenAmount(report.exactToken1Report, token1Info.decimals, token1Info.symbol)}</div>
             </div>
             <div class="pane-row">
-                <div class="pane-label">${token2Info.symbol} Amount (${formatTokenAmount(report.exactToken1Report, token1Info.decimals, token1Info.symbol)} worth of ${token2Info.symbol})</div>
+                <div class="pane-label">${token2Info.symbol} Amount (${formatTokenAmount(report.exactToken1Report, token1Info.decimals, token1Info.symbol)} worth of ${token2Info.symbol}) <span class="tooltip" data-tip="If you choose the wrong ${token2Info.symbol} amount, you stand to lose up to the absolute difference in value between ${token1Info.symbol} Amount and ${token2Info.symbol} Amount.">(?)</span></div>
                 <div class="pane-input-group">
                     <input type="text" id="amount2Input" class="pane-input" placeholder="Enter ${token2Info.symbol} amount" oninput="updateBreakevenVolatility()">
                     <button class="auto-btn" onclick="autoFillAmount2()">Auto</button>
@@ -2367,7 +2368,7 @@ function renderReport(report, token1Info, token2Info) {
             </div>
             <div id="disputeRequirements" class="dispute-requirements" style="display: none;">
                 <div class="pane-row">
-                    <div class="pane-label">Est. Immediate PnL (assuming correct ${token2Info.symbol} amount above) <span class="tooltip" data-tip="If you choose the wrong ${token2Info.symbol} amount, you stand to lose up to the absolute difference between New ${token1Info.symbol} Amount and New ${token2Info.symbol} Amount.">(?)</span></div>
+                    <div class="pane-label">Est. Immediate PnL (assuming correct ${token2Info.symbol} amount above) <span class="tooltip" data-tip="If you choose the wrong ${token2Info.symbol} amount, you stand to lose up to the absolute difference in value between New ${token1Info.symbol} Amount and New ${token2Info.symbol} Amount.">(?)</span></div>
                     <div class="pane-value" id="disputePnL">--</div>
                 </div>
                 <div class="pane-row">

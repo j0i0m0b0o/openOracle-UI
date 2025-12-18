@@ -33,31 +33,61 @@ openOracle is a decentralized oracle system that allows users to submit and disp
 **Server Requirements:**
 - Python 3.6+
 
-**External Libraries (loaded via CDN):**
-- ethers.js v5.7.2
-- IBM Plex Mono & Syne fonts (Google Fonts)
+## Running Modes
 
-## Installation
+There are three ways to run the viewer, depending on your security preferences:
 
-1. Clone the repository:
-```bash
-git clone <repository-url>
-```
+### Mode 1: CDN (Default)
 
-2. No npm/yarn installation required - all dependencies are loaded via CDN.
-
-## Running
-
-Start the local development server:
+Loads ethers.js from jsdelivr CDN and fonts from Google Fonts. Easiest setup.
 
 ```bash
 python3 server2.py
+# Open: http://127.0.0.1:8080/index2.html
 ```
 
-Then open your browser to:
+**External calls:** jsdelivr.net (ethers.js), fonts.googleapis.com, fonts.gstatic.com
+
+---
+
+### Mode 2: Local (No External Calls)
+
+Uses bundled `ethers-5.7.2.min.js` and system fonts. Zero external network requests.
+
+```bash
+python3 server2.py
+# Open: http://127.0.0.1:8080/index-local.html
 ```
-http://127.0.0.1:8080/index2.html
+
+**External calls:** None (fully local)
+
+The `ethers-5.7.2.min.js` file is included in the repo. Verify it matches the official release:
+```bash
+shasum -a 256 ethers-5.7.2.min.js
+# Expected: a66293a6a2bb4dee061a68612be0be3c5c0ab7e4068ab8d98a4a357baf664c73
 ```
+
+---
+
+### Mode 3: NPM Install (Paranoia Mode)
+
+Install and verify the ethers.js dependency yourself via npm.
+
+```bash
+# Install ethers from npm and copy to local
+npm run setup
+
+# Start server
+python3 server2.py
+# Open: http://127.0.0.1:8080/index-local.html
+```
+
+This lets you:
+- Verify the ethers package source yourself
+- Use `npm audit` to check for vulnerabilities
+- Pin to exact versions you trust
+
+**External calls:** None after setup (npm only during install)
 
 ## Usage
 
@@ -86,9 +116,9 @@ http://127.0.0.1:8080/index2.html
 
 | Contract | Address |
 |----------|---------|
-| Oracle | [`0xdcaa5082564F395819dC2F215716Fe901a1d0A23`](https://basescan.org/address/0xdcaa5082564F395819dC2F215716Fe901a1d0A23) |
-| Data Provider | [`0x4d3F62062d714384178Eb41198BDaBC63F6DeaBD`](https://basescan.org/address/0x4d3F62062d714384178Eb41198BDaBC63F6DeaBD) |
-| Batcher | [`0x7D3BA4745894f438e9e2815A3121f808de574746`](https://basescan.org/address/0x7D3BA4745894f438e9e2815A3121f808de574746) |
+| Oracle | [`0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752`](https://basescan.org/address/0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752) |
+| Data Provider | [`0x4ccfb84f7EB35ee23c2e91f12e9CE4Ea2927d23C`](https://basescan.org/address/0x4ccfb84f7EB35ee23c2e91f12e9CE4Ea2927d23C) |
+| Batcher | [`0xc7657a021A8860887DFb20ACA9b583D5bc33F23e`](https://basescan.org/address/0xc7657a021A8860887DFb20ACA9b583D5bc33F23e) |
 | WETH | [`0x4200000000000000000000000000000000000006`](https://basescan.org/address/0x4200000000000000000000000000000000000006) |
 | USDC | [`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`](https://basescan.org/address/0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913) |
 
@@ -96,9 +126,9 @@ http://127.0.0.1:8080/index2.html
 
 | Contract | Address |
 |----------|---------|
-| Oracle | [`0xdcaa5082564F395819dC2F215716Fe901a1d0A23`](https://etherscan.io/address/0xdcaa5082564F395819dC2F215716Fe901a1d0A23) |
-| Data Provider | [`0x5E79b04d8b7A99320e5DE2E9095D3deAc43679bc`](https://etherscan.io/address/0x5E79b04d8b7A99320e5DE2E9095D3deAc43679bc) |
-| Batcher | [`0x4e720AF297e740f2761278e99DbC5fD0999B4952`](https://etherscan.io/address/0x4e720AF297e740f2761278e99DbC5fD0999B4952) |
+| Oracle | [`0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752`](https://etherscan.io/address/0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752) |
+| Data Provider | [`0xebc117d55A9303C72E662d80b6b63B2514a68fd3`](https://etherscan.io/address/0xebc117d55A9303C72E662d80b6b63B2514a68fd3) |
+| Batcher | [`0x6D6b37618987A7E1229Af087c3Ff1283cE3BbEeF`](https://etherscan.io/address/0x6D6b37618987A7E1229Af087c3Ff1283cE3BbEeF) |
 | WETH | [`0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2`](https://etherscan.io/address/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2) |
 | USDC | [`0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48`](https://etherscan.io/address/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48) |
 
