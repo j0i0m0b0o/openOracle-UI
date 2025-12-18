@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>openOracle (Local Mode)</title>
+    <!-- LOCAL MODE: No external CDN calls. ethers.js v5.7.2 loaded locally. -->
+    <script src="ethers-5.7.2.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-secondary: #111827;
+            --bg-card: #151c2c;
+            --bg-elevated: #1a2235;
+            --border-subtle: #1e2a3d;
+            --border-default: #2a3a52;
+            --border-bright: #3d5173;
+            --text-primary: #f0f4f8;
+            --text-secondary: #8b9cb8;
+            --text-muted: #5a6a84;
+            --accent-cyan: #00d4ff;
+            --accent-cyan-dim: #00a8cc;
+            --accent-green: #00ff88;
+            --accent-green-dim: #00cc6a;
+            --accent-amber: #ffb800;
+            --accent-red: #ff4757;
+            --accent-purple: #a855f7;
+            --font-display: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            --font-mono: ui-monospace, 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Menlo, monospace;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            font-size: 15px;
+        }
+
+        body {
+            font-family: var(--font-mono);
+            background: var(--bg-primary);
+            min-height: 100vh;
+            color: var(--text-primary);
+            line-height: 1.5;
+            background-image:
+                linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-bright);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--accent-cyan-dim);
+        }
+
+        /* Layout */
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 32px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-purple) 100%);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--font-display);
+            font-weight: 700;
+            font-size: 18px;
+            color: var(--bg-primary);
+        }
+
+        .logo-text {
+            font-family: var(--font-display);
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.5px;
+        }
+
+        .logo-text span {
+            color: var(--accent-cyan);
+        }
+
+        /* Network Switcher */
+        .network-switcher {
+            display: flex;
+            gap: 8px;
+            background: var(--bg-secondary);
+            padding: 4px;
+            border-radius: 8px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .network-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: transparent;
+            border: none;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .network-btn:hover {
+            color: var(--text-primary);
+            background: var(--bg-elevated);
+        }
+
+        .network-btn.active {
+            background: var(--bg-elevated);
+            color: var(--text-primary);
+        }
+
+        .network-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            transition: background 0.2s ease;
+        }
+
+        .network-btn.base .network-dot {
+            background: #0052ff;
+        }
+
+        .network-btn.ethereum .network-dot {
+            background: #627eea;
+        }
+
+        .network-btn.active .network-dot {
+            box-shadow: 0 0 8px currentColor;
+        }
+
+        .network-btn.base.active .network-dot {
+            box-shadow: 0 0 8px #0052ff;
+        }
+
+        .network-btn.ethereum.active .network-dot {
+            box-shadow: 0 0 8px #627eea;
+        }
+
+        /* Wallet */
+        .wallet-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .wallet-btn {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            font-weight: 500;
+            padding: 10px 20px;
+            background: transparent;
+            border: 1px solid var(--accent-cyan);
+            color: var(--accent-cyan);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .wallet-btn:hover {
+            background: rgba(0, 212, 255, 0.1);
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+        }
+
+        .wallet-info {
+            display: none;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .wallet-address {
+            font-size: 0.8rem;
+            color: var(--accent-green);
+            padding: 8px 14px;
+            background: rgba(0, 255, 136, 0.08);
+            border: 1px solid rgba(0, 255, 136, 0.2);
+            border-radius: 6px;
+        }
+
+        .disconnect-btn {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            padding: 8px 14px;
+            background: transparent;
+            border: 1px solid var(--border-default);
+            color: var(--text-secondary);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .disconnect-btn:hover {
+            border-color: var(--accent-red);
+            color: var(--accent-red);
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 2px;
+            margin-bottom: 24px;
+            background: var(--bg-secondary);
+            padding: 4px;
+            border-radius: 10px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .tab {
+            flex: 1;
+            padding: 12px 20px;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            background: transparent;
+            border: none;
+            border-radius: 7px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+        }
+
+        .tab:hover {
+            color: var(--text-secondary);
+            background: var(--bg-card);
+        }
+
+        .tab.active {
+            color: var(--text-primary);
+            background: var(--bg-card);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--accent-cyan), transparent);
+            opacity: 0.3;
+        }
+
+        /* Search */
+        .search-container {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .search-input {
+            flex: 1;
+            font-family: var(--font-mono);
+            font-size: 1rem;
+            padding: 14px 18px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-default);
+            border-radius: 8px;
+            color: var(--text-primary);
+            transition: all 0.2s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.1);
+        }
+
+        .search-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .search-btn {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            font-weight: 600;
+            padding: 14px 28px;
+            background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-cyan-dim) 100%);
+            border: none;
+            border-radius: 8px;
+            color: var(--bg-primary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .search-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(0, 212, 255, 0.4);
+        }
+
+        /* Status Bar */
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.purple {
+            background: var(--accent-purple);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .status-value {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        /* Result Card */
+        .result-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 24px 28px;
+        }
+
+        .result-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .result-id {
+            font-family: var(--font-display);
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .result-id span {
+            color: var(--accent-cyan);
+        }
+
+        /* Badges */
+        .badge {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 5px 12px;
+            border-radius: 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .badge-settled {
+            background: rgba(0, 255, 136, 0.15);
+            color: var(--accent-green);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+        }
+
+        .badge-pending {
+            background: rgba(255, 184, 0, 0.15);
+            color: var(--accent-amber);
+            border: 1px solid rgba(255, 184, 0, 0.3);
+        }
+
+        .badge-awaiting {
+            background: rgba(139, 156, 184, 0.15);
+            color: var(--text-secondary);
+            border: 1px solid rgba(139, 156, 184, 0.3);
+        }
+
+        .header-meta {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-left: auto;
+            font-size: 0.8rem;
+        }
+
+        .meta-item {
+            color: var(--text-muted);
+        }
+
+        .meta-item.positive {
+            color: var(--accent-green);
+        }
+
+        /* Report Button */
+        .report-btn {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 6px 14px;
+            background: var(--accent-green);
+            border: none;
+            border-radius: 4px;
+            color: var(--bg-primary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .report-btn:hover {
+            background: var(--accent-green-dim);
+            transform: translateY(-1px);
+        }
+
+        /* Section */
+        .section {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .section:last-child {
+            border-bottom: none;
+        }
+
+        .section-title {
+            font-family: var(--font-display);
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-top: 20px;
+            margin-bottom: 16px;
+        }
+
+        .section-title:first-child {
+            margin-top: 0;
+        }
+
+        /* Info Grid */
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .info-item {
+            padding: 14px 16px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .info-item.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .info-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .info-value {
+            font-size: 0.95rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            word-break: break-all;
+        }
+
+        .info-value.positive { color: var(--accent-green); }
+        .info-value.negative { color: var(--accent-red); }
+        .info-value.highlight { color: var(--accent-cyan); }
+        .info-value.small { font-size: 0.8rem; }
+
+        /* Messages */
+        .error {
+            background: rgba(255, 71, 87, 0.1);
+            border: 1px solid rgba(255, 71, 87, 0.3);
+            color: var(--accent-red);
+            padding: 14px 18px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 0.85rem;
+        }
+
+        .warning {
+            background: rgba(255, 184, 0, 0.1);
+            border: 1px solid rgba(255, 184, 0, 0.3);
+            color: var(--accent-amber);
+            padding: 14px 18px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 0.85rem;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-muted);
+        }
+
+        /* Report Pane */
+        .report-pane {
+            background: var(--bg-elevated);
+            border: 1px solid var(--accent-green);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 0 40px rgba(0, 255, 136, 0.1);
+        }
+
+        .pane-header {
+            font-family: var(--font-display);
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--accent-green);
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(0, 255, 136, 0.2);
+        }
+
+        .pane-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .pane-label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .pane-value {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .pane-input-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .pane-input {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            padding: 10px 14px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-default);
+            border-radius: 6px;
+            color: var(--text-primary);
+            width: 180px;
+            text-align: right;
+        }
+
+        .pane-input:focus {
+            outline: none;
+            border-color: var(--accent-green);
+        }
+
+        .auto-btn {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 10px 16px;
+            background: var(--accent-purple);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .auto-btn:hover {
+            opacity: 0.9;
+        }
+
+        .pane-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(0, 255, 136, 0.2);
+        }
+
+        .submit-btn {
+            flex: 1;
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            font-weight: 600;
+            padding: 14px;
+            background: var(--accent-green);
+            border: none;
+            border-radius: 8px;
+            color: var(--bg-primary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .submit-btn:hover {
+            background: var(--accent-green-dim);
+        }
+
+        .cancel-btn {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            padding: 14px 24px;
+            background: transparent;
+            border: 1px solid var(--border-default);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .cancel-btn:hover {
+            border-color: var(--text-secondary);
+            color: var(--text-primary);
+        }
+
+        /* Overview */
+        .overview-controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 24px;
+        }
+
+        .range-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--bg-card);
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .range-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .range-input {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            width: 70px;
+            padding: 8px 10px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-default);
+            border-radius: 4px;
+            color: var(--text-primary);
+            text-align: center;
+        }
+
+        .range-input:focus {
+            outline: none;
+            border-color: var(--accent-cyan);
+        }
+
+        .control-btn {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            font-weight: 500;
+            padding: 10px 18px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-default);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .control-btn:hover {
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+        }
+
+        .control-btn.primary {
+            background: var(--accent-cyan);
+            border-color: var(--accent-cyan);
+            color: var(--bg-primary);
+        }
+
+        .control-btn.primary:hover {
+            background: var(--accent-cyan-dim);
+        }
+
+        .overview-stats {
+            margin-left: auto;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        /* Reports Grid */
+        .reports-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 14px;
+        }
+
+        .report-box {
+            background: var(--bg-card);
+            border-radius: 10px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            border: 1px solid var(--border-subtle);
+            position: relative;
+        }
+
+        .report-box::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 3px;
+            height: 100%;
+            transition: all 0.2s ease;
+        }
+
+        .report-box:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+            border-color: var(--border-default);
+        }
+
+        .report-box.awaiting {
+            border-color: rgba(0, 255, 136, 0.3);
+        }
+
+        .report-box.awaiting::after {
+            background: var(--accent-green);
+        }
+
+        .report-box.disputed {
+            border-color: rgba(255, 71, 87, 0.3);
+        }
+
+        .report-box.disputed::after {
+            background: var(--accent-red);
+        }
+
+        .report-box.settleable {
+            border-color: rgba(255, 193, 7, 0.3);
+        }
+
+        .report-box.settleable::after {
+            background: #ffc107;
+        }
+
+        .report-box-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .report-box-id {
+            font-family: var(--font-display);
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+        }
+
+        .report-box-status {
+            font-size: 0.65rem;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .report-box.awaiting .report-box-status {
+            background: rgba(0, 255, 136, 0.15);
+            color: var(--accent-green);
+        }
+
+        .report-box.disputed .report-box-status {
+            background: rgba(255, 71, 87, 0.15);
+            color: var(--accent-red);
+        }
+
+        .report-box-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            margin-top: 8px;
+        }
+
+        .report-box-label {
+            color: var(--text-muted);
+        }
+
+        .report-box-value {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .report-box-value.profit {
+            color: var(--accent-green);
+        }
+
+        .report-box-value.loss {
+            color: var(--accent-red);
+        }
+
+        .overview-loading {
+            text-align: center;
+            padding: 60px;
+            color: var(--text-muted);
+        }
+
+        /* Wrap Tab */
+        .wrap-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .wrap-header {
+            padding: 24px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .wrap-title {
+            font-family: var(--font-display);
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .wrap-balances {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            padding: 24px;
+            background: var(--bg-secondary);
+        }
+
+        .balance-item {
+            padding: 16px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .balance-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .balance-value {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .wrap-section {
+            padding: 24px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .wrap-section:last-child {
+            border-bottom: none;
+        }
+
+        .wrap-section-title {
+            font-family: var(--font-display);
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .wrap-section-title .arrow {
+            color: var(--accent-cyan);
+        }
+
+        .wrap-row {
+            display: flex;
+            gap: 12px;
+        }
+
+        .wrap-input {
+            flex: 1;
+            font-family: var(--font-mono);
+            font-size: 1rem;
+            padding: 14px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-default);
+            border-radius: 8px;
+            color: var(--text-primary);
+        }
+
+        .wrap-input:focus {
+            outline: none;
+            border-color: var(--accent-cyan);
+        }
+
+        .wrap-btn {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            font-weight: 600;
+            padding: 14px 28px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .wrap-btn.wrap {
+            background: var(--accent-cyan);
+            border: none;
+            color: var(--bg-primary);
+        }
+
+        .wrap-btn.wrap:hover {
+            background: var(--accent-cyan-dim);
+        }
+
+        .wrap-btn.unwrap {
+            background: transparent;
+            border: 1px solid var(--accent-purple);
+            color: var(--accent-purple);
+        }
+
+        .wrap-btn.unwrap:hover {
+            background: rgba(168, 85, 247, 0.1);
+        }
+
+        /* Badge classes for dynamic content */
+        .settled-badge {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 5px 12px;
+            border-radius: 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            background: rgba(0, 255, 136, 0.15);
+            color: var(--accent-green);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+        }
+
+        .pending-badge {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 5px 12px;
+            border-radius: 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            background: rgba(255, 184, 0, 0.15);
+            color: var(--accent-amber);
+            border: 1px solid rgba(255, 184, 0, 0.3);
+        }
+
+        .no-report-badge {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 5px 12px;
+            border-radius: 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            background: rgba(139, 156, 184, 0.15);
+            color: var(--text-secondary);
+            border: 1px solid rgba(139, 156, 184, 0.3);
+        }
+
+        .countdown-timer {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            font-weight: 600;
+            padding: 5px 12px;
+            border-radius: 20px;
+            margin-left: 10px;
+            background: rgba(255, 184, 0, 0.1);
+            color: var(--accent-amber);
+            border: 1px solid rgba(255, 184, 0, 0.3);
+        }
+
+        .countdown-timer.ready {
+            background: rgba(0, 255, 136, 0.15);
+            color: var(--accent-green);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+        }
+
+        .dispute-btn {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 6px 14px;
+            margin-left: 10px;
+            background: var(--accent-red);
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .dispute-btn:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .dispute-pane {
+            border-color: var(--accent-red) !important;
+            box-shadow: 0 0 40px rgba(255, 71, 87, 0.1) !important;
+        }
+
+        .dispute-requirements {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255, 71, 87, 0.2);
+        }
+
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            margin-left: 4px;
+            color: var(--accent-cyan);
+            cursor: help;
+            font-size: 0.75rem;
+            opacity: 0.8;
+        }
+
+        .tooltip:hover {
+            opacity: 1;
+        }
+
+        .tooltip::after {
+            content: attr(data-tip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-primary);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            white-space: normal;
+            width: 250px;
+            text-align: left;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s, visibility 0.2s;
+            z-index: 100;
+            pointer-events: none;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            margin-bottom: 6px;
+        }
+
+        .tooltip:hover::after {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        /* Compact tooltip for icons */
+        .tooltip-icon {
+            position: relative;
+            display: inline-block;
+            cursor: help;
+        }
+
+        .tooltip-icon::after {
+            content: attr(data-tip);
+            position: absolute;
+            bottom: calc(100% + 6px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-primary);
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            white-space: nowrap;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s, visibility 0.2s;
+            z-index: 1000;
+            pointer-events: none;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .tooltip-icon:hover::after {
+            opacity: 1;
+            visibility: visible;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <div class="logo-text">open<span>Oracle</span></div>
+            </div>
+            <div class="network-switcher">
+                <button class="network-btn base active" onclick="switchNetwork('base')" data-network="base">
+                    <span class="network-dot"></span>
+                    Base
+                </button>
+                <button class="network-btn ethereum" onclick="switchNetwork('ethereum')" data-network="ethereum">
+                    <span class="network-dot"></span>
+                    Ethereum
+                </button>
+            </div>
+            <div class="wallet-section" id="walletContainer">
+                <button id="connectBtn" class="wallet-btn" onclick="connectWalletManual()">Connect Wallet</button>
+                <div id="walletInfo" class="wallet-info">
+                    <span id="walletAddress" class="wallet-address"></span>
+                    <button class="disconnect-btn" onclick="disconnectWallet()">Disconnect</button>
+                </div>
+            </div>
+        </header>
+
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('single')">Single Instance</button>
+            <button class="tab" onclick="switchTab('overview')">Overview</button>
+            <button class="tab" onclick="switchTab('myreports')">My Reports</button>
+            <button class="tab" onclick="switchTab('wrap')">Wrap ETH</button>
+        </div>
+
+        <div id="singleTab" class="tab-content active">
+            <div class="card">
+                <div class="search-container">
+                    <input type="number" id="reportId" class="search-input" placeholder="Enter Report ID" min="1">
+                    <button id="searchBtn" class="search-btn" onclick="searchReport()">Search</button>
+                </div>
+                <div class="status-bar">
+                    <div class="status-item">
+                        <span class="status-dot" id="gasIndicator"></span>
+                        <span>Gas:</span>
+                        <span class="status-value" id="gasPrice">--</span>
+                        <span>gwei</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-dot" id="ethIndicator"></span>
+                        <span>ETH:</span>
+                        <span class="status-value">$<span id="ethPrice">--</span></span>
+                    </div>
+                    <div class="status-item" id="eventStatus" style="display: none;">
+                        <span class="status-dot purple"></span>
+                        <span>Listening</span>
+                        <span class="status-value">#<span id="listeningReportId">--</span></span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="errorBox" class="error" style="display: none;"></div>
+            <div id="warningBox" class="warning" style="display: none;"></div>
+            <div id="loadingBox" class="loading" style="display: none;">Loading report data...</div>
+            <div id="resultBox"></div>
+        </div>
+
+        <div id="overviewTab" class="tab-content">
+            <div class="overview-controls">
+                <div class="range-group">
+                    <span class="range-label">Range</span>
+                    <input type="number" id="overviewStartId" class="range-input" value="1" min="1">
+                    <span style="color: var(--text-muted);">to</span>
+                    <input type="number" id="overviewEndId" class="range-input" value="100" min="1">
+                </div>
+                <button class="control-btn" onclick="loadOverview()">Refresh</button>
+                <button class="control-btn primary" onclick="loadOverview(true)">Recent</button>
+                <div class="overview-stats">
+                    <span id="overviewStats"></span>
+                </div>
+            </div>
+            <div id="overviewLoading" class="overview-loading" style="display: none;">Loading reports...</div>
+            <div id="reportsGrid" class="reports-grid"></div>
+        </div>
+
+        <div id="myReportsTab" class="tab-content">
+            <div class="overview-controls">
+                <button class="control-btn primary" onclick="loadMyReports()">Refresh</button>
+                <button class="control-btn" onclick="clearMyReports()">Clear All</button>
+                <div class="overview-stats">
+                    <span id="myReportsStats"></span>
+                </div>
+            </div>
+            <div id="myReportsLoading" class="overview-loading" style="display: none;">Loading your reports...</div>
+            <div id="myReportsGrid" class="reports-grid"></div>
+            <div id="myReportsEmpty" class="overview-loading" style="display: none;">
+                No reports yet. Submit an initial report or dispute to track it here.
+            </div>
+        </div>
+
+        <div id="wrapTab" class="tab-content">
+            <div class="wrap-card">
+                <div class="wrap-header">
+                    <h2 class="wrap-title">Wrap / Unwrap ETH</h2>
+                </div>
+                <div class="wrap-balances">
+                    <div class="balance-item">
+                        <div class="balance-label">Your ETH Balance</div>
+                        <div class="balance-value" id="ethBalance">--</div>
+                    </div>
+                    <div class="balance-item">
+                        <div class="balance-label">Your WETH Balance</div>
+                        <div class="balance-value" id="wethBalance">--</div>
+                    </div>
+                </div>
+                <div class="wrap-section">
+                    <div class="wrap-section-title">
+                        Wrap <span class="arrow">ETH → WETH</span>
+                    </div>
+                    <div class="wrap-row">
+                        <input type="text" id="wrapAmount" class="wrap-input" placeholder="0.0">
+                        <button class="wrap-btn wrap" onclick="wrapEth()">Wrap</button>
+                    </div>
+                </div>
+                <div class="wrap-section">
+                    <div class="wrap-section-title">
+                        Unwrap <span class="arrow">WETH → ETH</span>
+                    </div>
+                    <div class="wrap-row">
+                        <input type="text" id="unwrapAmount" class="wrap-input" placeholder="0.0">
+                        <button class="wrap-btn unwrap" onclick="unwrapWeth()">Unwrap</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Risk Disclaimer Modal -->
+    <div id="riskModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 10000; align-items: center; justify-content: center;">
+        <div style="background: var(--bg-secondary); border-radius: 16px; max-width: 520px; padding: 32px; margin: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.4); border: 1px solid var(--border-color);">
+            <h2 style="margin: 0 0 20px 0; color: var(--accent-red); font-size: 22px; font-family: var(--font-display);">Risk Warning</h2>
+
+            <div style="margin-bottom: 20px; line-height: 1.6; color: var(--text-secondary); font-size: 14px;">
+                <p style="margin-bottom: 12px;"><strong style="color: var(--text-primary);">Participating in oracle reporting involves substantial risk, including but not limited to:</strong></p>
+                <ul style="margin: 0 0 16px 20px; padding: 0;">
+                    <li style="margin-bottom: 8px;">Permanent loss of funds due to price volatility during settlement periods.</li>
+                    <li style="margin-bottom: 8px;">Loss of staked capital if your report is disputed with a more accurate price.</li>
+                    <li style="margin-bottom: 8px;">Smart contract bugs, oracle failures, or unforeseen edge cases.</li>
+                    <li style="margin-bottom: 8px;">MEV, front-running, or other on-chain adversarial behavior.</li>
+                </ul>
+
+                <p style="margin-bottom: 12px;"><strong style="color: var(--text-primary);">By clicking "I Understand and Accept", you acknowledge:</strong></p>
+                <ul style="margin: 0 0 16px 20px; padding: 0;">
+                    <li style="margin-bottom: 8px;">You are solely responsible for verifying all transaction parameters before signing.</li>
+                    <li style="margin-bottom: 8px;">You assume all risks associated with use of the openOracle protocol.</li>
+                    <li style="margin-bottom: 8px;">The protocol and its contributors provide no guarantees, no warranties, and no liability for losses.</li>
+                </ul>
+            </div>
+
+            <div style="margin-bottom: 24px; background: rgba(255, 71, 87, 0.1); border: 1px solid rgba(255, 71, 87, 0.3); border-radius: 8px; padding: 12px;">
+                <label style="display: flex; align-items: flex-start; cursor: pointer; font-size: 14px;">
+                    <input type="checkbox" id="riskCheckbox" style="margin-right: 10px; margin-top: 2px; cursor: pointer; accent-color: var(--accent-red);">
+                    <span style="color: var(--accent-red); line-height: 1.4;">I understand that I may lose all funds and accept full responsibility.</span>
+                </label>
+            </div>
+
+            <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                <button onclick="cancelRiskModal()" style="padding: 10px 20px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; cursor: pointer; color: var(--text-secondary); font-family: var(--font-mono);">Cancel</button>
+                <button id="acceptRiskBtn" onclick="acceptRiskModal()" disabled style="padding: 10px 20px; background: var(--accent-red); border: none; border-radius: 8px; font-size: 14px; cursor: pointer; color: white; opacity: 0.5; font-family: var(--font-mono);">I Understand and Accept</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Risk modal functions
+        document.getElementById('riskCheckbox').addEventListener('change', function(e) {
+            const acceptBtn = document.getElementById('acceptRiskBtn');
+            if (e.target.checked) {
+                acceptBtn.disabled = false;
+                acceptBtn.style.opacity = '1';
+            } else {
+                acceptBtn.disabled = true;
+                acceptBtn.style.opacity = '0.5';
+            }
+        });
+
+        function cancelRiskModal() {
+            document.getElementById('riskModal').style.display = 'none';
+            // Disconnect wallet since they didn't accept
+            if (window.disconnectWallet) {
+                window.disconnectWallet();
+            }
+        }
+
+        function acceptRiskModal() {
+            if (!document.getElementById('riskCheckbox').checked) return;
+
+            // Store consent for this wallet address
+            if (window.userAddress) {
+                localStorage.setItem(`oracleRiskAccepted_${window.userAddress.toLowerCase()}`, 'true');
+            }
+
+            // Hide modal
+            document.getElementById('riskModal').style.display = 'none';
+
+            // Continue with connection flow
+            if (window.finishWalletConnection) {
+                window.finishWalletConnection();
+            }
+        }
+    </script>
+
+    <script src="app_updated2.js"></script>
+</body>
+</html>

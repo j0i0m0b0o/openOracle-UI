@@ -1,0 +1,15 @@
+{
+  "name": "openoracle-viewer",
+  "version": "1.0.0",
+  "description": "openOracle Report Viewer - Local/Paranoia Mode",
+  "private": true,
+  "scripts": {
+    "setup": "npm install && npm run copy-ethers",
+    "copy-ethers": "cp node_modules/ethers/dist/ethers.umd.min.js ethers-5.7.2.min.js",
+    "serve": "python3 server2.py",
+    "start": "npm run serve"
+  },
+  "dependencies": {
+    "ethers": "5.7.2"
+  }
+}
