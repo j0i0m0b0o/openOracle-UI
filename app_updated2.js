@@ -7,7 +7,7 @@ const NETWORKS = {
         contracts: {
             dataProvider: '0x4ccfb84f7EB35ee23c2e91f12e9CE4Ea2927d23C',
             oracle: '0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752',
-            batcher: '0xc7657a021A8860887DFb20ACA9b583D5bc33F23e',
+            batcher: '0xE23652de39374091B5495c737d414E76ba79bCb1',
             weth: '0x4200000000000000000000000000000000000006',
             usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
         },
@@ -28,7 +28,7 @@ const NETWORKS = {
         contracts: {
             dataProvider: '0xebc117d55A9303C72E662d80b6b63B2514a68fd3',
             oracle: '0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752', // Same as Base
-            batcher: '0x6D6b37618987A7E1229Af087c3Ff1283cE3BbEeF',
+            batcher: '0x144DC1F2C61d6Ec25541bA7Eb82db10C87E07e3B',
             weth: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
             usdc: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'
         },
@@ -50,7 +50,7 @@ const NETWORKS = {
         contracts: {
             dataProvider: '0xA5A6d54Cd934559D99A6aB53545AF47AeD9AD168',
             oracle: '0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752', // Same as Base/Ethereum
-            batcher: '0x998cB9f953E8ED534e77d6D1B129ec4B52A7d11D',
+            batcher: '0x78eB93B549024B9bDcBd4eB3B7150571c53Ebf66',
             weth: '0x4200000000000000000000000000000000000006',
             usdc: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85'
         },
@@ -1796,8 +1796,8 @@ async function submitDispute() {
         if (pane) pane.style.display = 'none';
         console.log('Dispute submitted successfully!');
 
-        // Refresh the report display to show new state
-        await searchReport();
+        // Refresh the report display to show new state (skip fresher data to avoid double-refresh)
+        await searchReport(true);
 
     } catch (e) {
         console.error('Dispute error:', e);
@@ -1984,8 +1984,8 @@ async function submitInitialReport() {
         if (pane) pane.style.display = 'none';
         console.log('Initial report submitted successfully!');
 
-        // Refresh the report display to show new state
-        await searchReport();
+        // Refresh the report display to show new state (skip fresher data to avoid double-refresh)
+        await searchReport(true);
     } catch (e) {
         console.error('Submit error:', e);
         // Try to extract more meaningful error
@@ -2061,8 +2061,8 @@ async function settleReport(reportId) {
         const receipt = await tx.wait();
         console.log('TX confirmed:', receipt);
 
-        // Refresh the report view
-        searchReport();
+        // Refresh the report view (skip fresher data to avoid double-refresh)
+        searchReport(true);
         console.log('Report settled successfully!');
 
     } catch (e) {
@@ -2078,7 +2078,7 @@ async function settleReport(reportId) {
     }
 }
 
-async function searchReport() {
+async function searchReport(skipFresherData = false) {
     const reportIdInput = document.getElementById('reportId');
     const reportId = parseInt(reportIdInput.value);
 
@@ -2095,7 +2095,8 @@ async function searchReport() {
         const startTime = performance.now();
 
         // Callback for when fresher data arrives from a slower but more up-to-date RPC
-        const onFresherData = async (fresherResult) => {
+        // Skip this after submissions to avoid double-refresh
+        const onFresherData = skipFresherData ? null : async (fresherResult) => {
             const data = fresherResult.result;
             if (!data || data.length === 0) return;
 
@@ -3134,6 +3135,18 @@ async function loadMyReports() {
             const hasInitialReport = report.currentReporter !== ethers.constants.AddressZero;
             const isSettled = report.isDistributed;
             const reportId = typeof report.reportId === 'number' ? report.reportId : report.reportId.toNumber();
+
+            // Check if report doesn't exist (token addresses are zero)
+            if (report.token1 === ethers.constants.AddressZero || report.token2 === ethers.constants.AddressZero) {
+                toPurge.push(reportId);
+                continue; // Skip non-existent reports
+            }
+
+            // Purge reports without initial report (stale data - UI only saves after successful tx)
+            if (!hasInitialReport) {
+                toPurge.push(reportId);
+                continue; // Skip reports user never actually submitted to
+            }
 
             // Check if we should purge this report
             if (isSettled) {

@@ -118,7 +118,7 @@ This lets you:
 |----------|---------|
 | Oracle | [`0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752`](https://basescan.org/address/0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752) |
 | Data Provider | [`0x4ccfb84f7EB35ee23c2e91f12e9CE4Ea2927d23C`](https://basescan.org/address/0x4ccfb84f7EB35ee23c2e91f12e9CE4Ea2927d23C) |
-| Batcher | [`0xc7657a021A8860887DFb20ACA9b583D5bc33F23e`](https://basescan.org/address/0xc7657a021A8860887DFb20ACA9b583D5bc33F23e) |
+| Batcher | [`0xE23652de39374091B5495c737d414E76ba79bCb1`](https://basescan.org/address/0xE23652de39374091B5495c737d414E76ba79bCb1) |
 | WETH | [`0x4200000000000000000000000000000000000006`](https://basescan.org/address/0x4200000000000000000000000000000000000006) |
 | USDC | [`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`](https://basescan.org/address/0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913) |
 
@@ -128,7 +128,7 @@ This lets you:
 |----------|---------|
 | Oracle | [`0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752`](https://etherscan.io/address/0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752) |
 | Data Provider | [`0xebc117d55A9303C72E662d80b6b63B2514a68fd3`](https://etherscan.io/address/0xebc117d55A9303C72E662d80b6b63B2514a68fd3) |
-| Batcher | [`0x6D6b37618987A7E1229Af087c3Ff1283cE3BbEeF`](https://etherscan.io/address/0x6D6b37618987A7E1229Af087c3Ff1283cE3BbEeF) |
+| Batcher | [`0x144DC1F2C61d6Ec25541bA7Eb82db10C87E07e3B`](https://etherscan.io/address/0x144DC1F2C61d6Ec25541bA7Eb82db10C87E07e3B) |
 | WETH | [`0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2`](https://etherscan.io/address/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2) |
 | USDC | [`0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48`](https://etherscan.io/address/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48) |
 
@@ -138,7 +138,7 @@ This lets you:
 |----------|---------|
 | Oracle | [`0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752`](https://optimistic.etherscan.io/address/0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752) |
 | Data Provider | [`0xA5A6d54Cd934559D99A6aB53545AF47AeD9AD168`](https://optimistic.etherscan.io/address/0xA5A6d54Cd934559D99A6aB53545AF47AeD9AD168) |
-| Batcher | [`0x998cB9f953E8ED534e77d6D1B129ec4B52A7d11D`](https://optimistic.etherscan.io/address/0x998cB9f953E8ED534e77d6D1B129ec4B52A7d11D) |
+| Batcher | [`0x78eB93B549024B9bDcBd4eB3B7150571c53Ebf66`](https://optimistic.etherscan.io/address/0x78eB93B549024B9bDcBd4eB3B7150571c53Ebf66) |
 | WETH | [`0x4200000000000000000000000000000000000006`](https://optimistic.etherscan.io/address/0x4200000000000000000000000000000000000006) |
 | USDC | [`0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85`](https://optimistic.etherscan.io/address/0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85) |
 
