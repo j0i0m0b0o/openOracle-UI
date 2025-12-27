@@ -7,7 +7,7 @@ const NETWORKS = {
         contracts: {
             dataProvider: '0x4ccfb84f7EB35ee23c2e91f12e9CE4Ea2927d23C',
             oracle: '0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752',
-            batcher: '0xE23652de39374091B5495c737d414E76ba79bCb1',
+            batcher: '0x95420A44715AA90e4CAa76b8A04604B750Da67ed',
             weth: '0x4200000000000000000000000000000000000006',
             usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
         },
@@ -28,7 +28,7 @@ const NETWORKS = {
         contracts: {
             dataProvider: '0xebc117d55A9303C72E662d80b6b63B2514a68fd3',
             oracle: '0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752', // Same as Base
-            batcher: '0x144DC1F2C61d6Ec25541bA7Eb82db10C87E07e3B',
+            batcher: '0xCcFcBAbE2b43cDAE75493fb6EE66AECDdA859Eff',
             weth: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
             usdc: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'
         },
@@ -50,7 +50,7 @@ const NETWORKS = {
         contracts: {
             dataProvider: '0xA5A6d54Cd934559D99A6aB53545AF47AeD9AD168',
             oracle: '0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752', // Same as Base/Ethereum
-            batcher: '0x78eB93B549024B9bDcBd4eB3B7150571c53Ebf66',
+            batcher: '0x4795F239ECdbc59bcD44fCB7EBEB333AA7b98687',
             weth: '0x4200000000000000000000000000000000000006',
             usdc: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85'
         },
