@@ -170,6 +170,10 @@
             background: #627eea;
         }
 
+        .network-btn.optimism .network-dot {
+            background: #ff0420;
+        }
+
         .network-btn.active .network-dot {
             box-shadow: 0 0 8px currentColor;
         }
@@ -180,6 +184,10 @@
 
         .network-btn.ethereum.active .network-dot {
             box-shadow: 0 0 8px #627eea;
+        }
+
+        .network-btn.optimism.active .network-dot {
+            box-shadow: 0 0 8px #ff0420;
         }
 
         /* Wallet */
@@ -1199,6 +1207,10 @@
                 <button class="network-btn ethereum" onclick="switchNetwork('ethereum')" data-network="ethereum">
                     <span class="network-dot"></span>
                     Ethereum
+                </button>
+                <button class="network-btn optimism" onclick="switchNetwork('optimism')" data-network="optimism">
+                    <span class="network-dot"></span>
+                    OP Mainnet
                 </button>
             </div>
             <div class="wallet-section" id="walletContainer">

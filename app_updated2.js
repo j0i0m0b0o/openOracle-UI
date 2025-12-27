@@ -42,6 +42,27 @@ const NETWORKS = {
         ],
         blockExplorer: 'https://etherscan.io',
         nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }
+    },
+    optimism: {
+        name: 'OP Mainnet',
+        chainId: '0xa',
+        chainIdDecimal: 10,
+        contracts: {
+            dataProvider: '0xA5A6d54Cd934559D99A6aB53545AF47AeD9AD168',
+            oracle: '0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752', // Same as Base/Ethereum
+            batcher: '0x998cB9f953E8ED534e77d6D1B129ec4B52A7d11D',
+            weth: '0x4200000000000000000000000000000000000006',
+            usdc: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85'
+        },
+        rpcEndpoints: [
+            'https://optimism.drpc.org',
+            'https://optimism-rpc.publicnode.com',
+            'https://optimism.meowrpc.com',
+            'https://1rpc.io/op',
+            'https://mainnet.optimism.io'  // Last - may be rate-limited
+        ],
+        blockExplorer: 'https://optimistic.etherscan.io',
+        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }
     }
 };
 
@@ -1710,7 +1731,7 @@ async function submitDispute() {
         if (allowance1.lt(swapInfo.batchAmount1)) {
             console.log('Approving token1...');
             approvalPromises.push(
-                token1Contract.approve(BATCHER_ADDRESS, ethers.constants.MaxUint256)
+                token1Contract.approve(BATCHER_ADDRESS, swapInfo.batchAmount1)
                     .then(tx => tx.wait())
                     .then(() => console.log('Token1 approved'))
             );
@@ -1718,7 +1739,7 @@ async function submitDispute() {
         if (allowance2.lt(swapInfo.batchAmount2)) {
             console.log('Approving token2...');
             approvalPromises.push(
-                token2Contract.approve(BATCHER_ADDRESS, ethers.constants.MaxUint256)
+                token2Contract.approve(BATCHER_ADDRESS, swapInfo.batchAmount2)
                     .then(tx => tx.wait())
                     .then(() => console.log('Token2 approved'))
             );
@@ -1876,7 +1897,7 @@ async function submitInitialReport() {
         if (allowance1.lt(amount1)) {
             console.log('Approving token1...');
             approvalPromises.push(
-                token1Contract.approve(BATCHER_ADDRESS, ethers.constants.MaxUint256)
+                token1Contract.approve(BATCHER_ADDRESS, amount1)
                     .then(tx => tx.wait())
                     .then(() => console.log('Token1 approved'))
             );
@@ -1884,7 +1905,7 @@ async function submitInitialReport() {
         if (allowance2.lt(amount2)) {
             console.log('Approving token2...');
             approvalPromises.push(
-                token2Contract.approve(BATCHER_ADDRESS, ethers.constants.MaxUint256)
+                token2Contract.approve(BATCHER_ADDRESS, amount2)
                     .then(tx => tx.wait())
                     .then(() => console.log('Token2 approved'))
             );

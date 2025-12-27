@@ -1,6 +1,6 @@
 # openOracle Report Viewer
 
-A web-based interface for viewing and interacting with openOracle reports on Base and Ethereum mainnet.
+A web-based interface for viewing and interacting with openOracle reports on Base, Ethereum, and OP Mainnet.
 
 ## Overview
 
@@ -10,7 +10,7 @@ openOracle is a decentralized oracle system that allows users to submit and disp
 - **Overview Dashboard**: Browse the last 200 reports, or a range, with status and profitability indicators
 - **My Reports**: Track reports you've submitted or disputed
 - **Wrap/Unwrap ETH**: Convenient ETH <-> WETH conversion utility
-- **Multi-Network Support**: Switch between Base and Ethereum mainnet
+- **Multi-Network Support**: Switch between Base, Ethereum, and OP Mainnet
 
 ## Features
 
@@ -131,6 +131,16 @@ This lets you:
 | Batcher | [`0x6D6b37618987A7E1229Af087c3Ff1283cE3BbEeF`](https://etherscan.io/address/0x6D6b37618987A7E1229Af087c3Ff1283cE3BbEeF) |
 | WETH | [`0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2`](https://etherscan.io/address/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2) |
 | USDC | [`0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48`](https://etherscan.io/address/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48) |
+
+### OP Mainnet
+
+| Contract | Address |
+|----------|---------|
+| Oracle | [`0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752`](https://optimistic.etherscan.io/address/0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752) |
+| Data Provider | [`0xA5A6d54Cd934559D99A6aB53545AF47AeD9AD168`](https://optimistic.etherscan.io/address/0xA5A6d54Cd934559D99A6aB53545AF47AeD9AD168) |
+| Batcher | [`0x998cB9f953E8ED534e77d6D1B129ec4B52A7d11D`](https://optimistic.etherscan.io/address/0x998cB9f953E8ED534e77d6D1B129ec4B52A7d11D) |
+| WETH | [`0x4200000000000000000000000000000000000006`](https://optimistic.etherscan.io/address/0x4200000000000000000000000000000000000006) |
+| USDC | [`0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85`](https://optimistic.etherscan.io/address/0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85) |
 
 ## License
 
