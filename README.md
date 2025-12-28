@@ -136,11 +136,13 @@ This lets you:
 
 | Contract | Address |
 |----------|---------|
-| Oracle | [`0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752`](https://optimistic.etherscan.io/address/0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752) |
-| Data Provider | [`0xA5A6d54Cd934559D99A6aB53545AF47AeD9AD168`](https://optimistic.etherscan.io/address/0xA5A6d54Cd934559D99A6aB53545AF47AeD9AD168) |
-| Batcher | [`0x4795F239ECdbc59bcD44fCB7EBEB333AA7b98687`](https://optimistic.etherscan.io/address/0x4795F239ECdbc59bcD44fCB7EBEB333AA7b98687) |
+| Oracle | [`0xf3CCE3274c32f1F344Ba48336D5EFF34dc6E145f`](https://optimistic.etherscan.io/address/0xf3CCE3274c32f1F344Ba48336D5EFF34dc6E145f) |
+| Data Provider | [`0x4f9041CCAea126119A1fe62F40A24e7556f1357b`](https://optimistic.etherscan.io/address/0x4f9041CCAea126119A1fe62F40A24e7556f1357b) |
+| Batcher | [`0x6D5dCF8570572e106eF1602ef2152BC363dAeC8b`](https://optimistic.etherscan.io/address/0x6D5dCF8570572e106eF1602ef2152BC363dAeC8b) |
+| Bounty | [`0xA0Fac46231EA6964A0d7c75C4CB01a87Cfb638D1`](https://optimistic.etherscan.io/address/0xA0Fac46231EA6964A0d7c75C4CB01a87Cfb638D1) |
 | WETH | [`0x4200000000000000000000000000000000000006`](https://optimistic.etherscan.io/address/0x4200000000000000000000000000000000000006) |
 | USDC | [`0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85`](https://optimistic.etherscan.io/address/0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85) |
+| OP | [`0x4200000000000000000000000000000000000042`](https://optimistic.etherscan.io/address/0x4200000000000000000000000000000000000042) |
 
 ## License
 

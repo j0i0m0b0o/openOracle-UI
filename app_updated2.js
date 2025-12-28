@@ -19,7 +19,8 @@ const NETWORKS = {
             'https://mainnet.base.org'  // Last - heavily rate-limited
         ],
         blockExplorer: 'https://basescan.org',
-        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }
+        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+        blockTime: 2 // seconds
     },
     ethereum: {
         name: 'Ethereum',
@@ -41,18 +42,21 @@ const NETWORKS = {
             'https://cloudflare-eth.com'
         ],
         blockExplorer: 'https://etherscan.io',
-        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }
+        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+        blockTime: 12 // seconds
     },
     optimism: {
         name: 'OP Mainnet',
         chainId: '0xa',
         chainIdDecimal: 10,
         contracts: {
-            dataProvider: '0xA5A6d54Cd934559D99A6aB53545AF47AeD9AD168',
-            oracle: '0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752', // Same as Base/Ethereum
-            batcher: '0x4795F239ECdbc59bcD44fCB7EBEB333AA7b98687',
+            dataProvider: '0x4f9041CCAea126119A1fe62F40A24e7556f1357b',
+            oracle: '0xf3CCE3274c32f1F344Ba48336D5EFF34dc6E145f',
+            batcher: '0x6D5dCF8570572e106eF1602ef2152BC363dAeC8b',
+            bountyContract: '0xA0Fac46231EA6964A0d7c75C4CB01a87Cfb638D1',
             weth: '0x4200000000000000000000000000000000000006',
-            usdc: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85'
+            usdc: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
+            op: '0x4200000000000000000000000000000000000042'
         },
         rpcEndpoints: [
             'https://optimism.drpc.org',
@@ -62,7 +66,8 @@ const NETWORKS = {
             'https://mainnet.optimism.io'  // Last - may be rate-limited
         ],
         blockExplorer: 'https://optimistic.etherscan.io',
-        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }
+        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+        blockTime: 2 // seconds
     }
 };
 
@@ -467,6 +472,49 @@ const BATCHER_ABI = [
     }
 ];
 
+// Bounty contract ABI (getBounties + submitInitialReport)
+const BOUNTY_ABI = [
+    {
+        "inputs": [{"name": "reportIds", "type": "uint256[]"}],
+        "name": "getBounties",
+        "outputs": [{
+            "components": [
+                {"name": "totalAmtDeposited", "type": "uint256"},
+                {"name": "bountyStartAmt", "type": "uint256"},
+                {"name": "bountyClaimed", "type": "uint256"},
+                {"name": "start", "type": "uint256"},
+                {"name": "forwardStartTime", "type": "uint256"},
+                {"name": "roundLength", "type": "uint256"},
+                {"name": "creator", "type": "address"},
+                {"name": "editor", "type": "address"},
+                {"name": "bountyToken", "type": "address"},
+                {"name": "bountyMultiplier", "type": "uint16"},
+                {"name": "maxRounds", "type": "uint16"},
+                {"name": "claimed", "type": "bool"},
+                {"name": "recalled", "type": "bool"},
+                {"name": "timeType", "type": "bool"},
+                {"name": "recallOnClaim", "type": "bool"}
+            ],
+            "name": "",
+            "type": "tuple[]"
+        }],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"name": "reportId", "type": "uint256"},
+            {"name": "amount1", "type": "uint256"},
+            {"name": "amount2", "type": "uint256"},
+            {"name": "stateHash", "type": "bytes32"}
+        ],
+        "name": "submitInitialReport",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    }
+];
+
 // RPC endpoints for racing
 // RPC_ENDPOINTS now comes from getNetwork().rpcEndpoints
 
@@ -474,7 +522,19 @@ const BATCHER_ABI = [
 let provider = null;
 let providers = [];
 let currentGasPrice = null;
+let currentBlockNumber = null; // Cached block number for block-based bounty calculations
+let blockNumberUpdatedAt = null; // Timestamp when block number was last fetched
+
+// Get estimated current block number (interpolates based on network block time)
+function getEstimatedBlockNumber() {
+    if (!currentBlockNumber || !blockNumberUpdatedAt) return currentBlockNumber;
+    const secondsElapsed = (Date.now() - blockNumberUpdatedAt) / 1000;
+    const blockTime = getNetwork().blockTime;
+    const blocksElapsed = Math.floor(secondsElapsed / blockTime);
+    return currentBlockNumber + blocksElapsed;
+}
 let ethPrice = null;
+let opPrice = null; // OP token price for bounty calculations
 let signer = null;
 let userAddress = null;
 let currentReport = null; // Store current report for actions
@@ -488,6 +548,123 @@ let currentDisputeInfo = null; // Store dispute info for dispute pane
 let currentDisputeSwapInfo = null; // Store calculated swap requirements for dispute submission
 let myReportsTimerInterval = null; // Timer for My Reports countdowns
 let pollingInterval = null; // Fallback polling for report updates (events only use first RPC)
+let cachedBounties = {}; // Cache bounty data by reportId
+
+// ============ BOUNTY FUNCTIONS ============
+
+// Get bounty contract address for current network (null if not available)
+function getBountyContractAddress() {
+    const contracts = getContracts();
+    return contracts.bountyContract || null;
+}
+
+// Get OP token address for current network (null if not Optimism)
+function getOpTokenAddress() {
+    const contracts = getContracts();
+    return contracts.op || null;
+}
+
+// Fetch bounty data for an array of reportIds (batched to avoid rate limits)
+async function fetchBountyData(reportIds) {
+    const bountyAddr = getBountyContractAddress();
+    if (!bountyAddr || reportIds.length === 0) return {};
+
+    const BATCH_SIZE = 20;
+    const BATCH_DELAY_MS = 500;
+    const result = {};
+
+    try {
+        const bountyContract = new ethers.Contract(bountyAddr, BOUNTY_ABI, provider);
+
+        // Split into batches with delay between each
+        for (let i = 0; i < reportIds.length; i += BATCH_SIZE) {
+            if (i > 0) await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
+
+            const batch = reportIds.slice(i, i + BATCH_SIZE);
+            const bounties = await bountyContract.getBounties(batch);
+
+            for (let j = 0; j < batch.length; j++) {
+                if (bounties[j].maxRounds === 0) continue;
+                result[batch[j]] = bounties[j];
+            }
+        }
+        return result;
+    } catch (e) {
+        console.error('Failed to fetch bounty data:', e);
+        return {};
+    }
+}
+
+// Calculate current bounty amount (mirrors Solidity calcBounty)
+// Pass currentTimestamp for timeType=true, currentBlockNumber for timeType=false
+function calcCurrentBounty(bounty, currentTimestamp, currentBlockNumber = null) {
+    if (bounty.claimed || bounty.recalled) return ethers.BigNumber.from(0);
+
+    const start = ethers.BigNumber.from(bounty.start);
+    // timeType: true = use timestamp, false = use block number
+    const currentTime = bounty.timeType
+        ? ethers.BigNumber.from(currentTimestamp)
+        : ethers.BigNumber.from(currentBlockNumber || 0);
+
+    // Bounty hasn't started yet
+    if (currentTime.lt(start)) {
+        return ethers.BigNumber.from(bounty.bountyStartAmt);
+    }
+
+    const roundLength = ethers.BigNumber.from(bounty.roundLength);
+    let rounds = currentTime.sub(start).div(roundLength).toNumber();
+    if (rounds > bounty.maxRounds) {
+        rounds = bounty.maxRounds;
+    }
+
+    // Calculate: bounty = bountyStartAmt * (bountyMultiplier/10000)^rounds
+    let bountyAmt = ethers.BigNumber.from(bounty.bountyStartAmt);
+    for (let i = 0; i < rounds; i++) {
+        bountyAmt = bountyAmt.mul(bounty.bountyMultiplier).div(10000);
+    }
+
+    // Cap at totalAmtDeposited
+    if (bountyAmt.gt(bounty.totalAmtDeposited)) {
+        bountyAmt = ethers.BigNumber.from(bounty.totalAmtDeposited);
+    }
+
+    return bountyAmt;
+}
+
+// Get bounty token symbol and decimals
+// BOUNTY CONTRACT ONLY: address(0) = ETH for bounty payments (NOT the same as WETH)
+function getBountyTokenInfo(bountyTokenAddr) {
+    const opAddr = getOpTokenAddress();
+
+    // Bounty contract uses address(0) for native ETH payments
+    if (bountyTokenAddr === ethers.constants.AddressZero) {
+        return { symbol: 'ETH', decimals: 18 };
+    } else if (opAddr && bountyTokenAddr.toLowerCase() === opAddr.toLowerCase()) {
+        return { symbol: 'OP', decimals: 18 };
+    } else {
+        return { symbol: 'TOKEN', decimals: 18 }; // Unknown token - will be filtered out
+    }
+}
+
+// Check if bounty is valid (ETH or OP only, not claimed/recalled)
+function isValidBounty(bounty) {
+    if (!bounty || bounty.claimed || bounty.recalled || bounty.maxRounds === 0) return false;
+    const tokenInfo = getBountyTokenInfo(bounty.bountyToken);
+    return tokenInfo.symbol === 'ETH' || tokenInfo.symbol === 'OP';
+}
+
+// Format bounty amount for display
+function formatBountyAmount(amount, tokenInfo) {
+    const formatted = parseFloat(ethers.utils.formatUnits(amount, tokenInfo.decimals));
+    if (formatted >= 1) {
+        return `${formatted.toFixed(3)} ${tokenInfo.symbol}`;
+    } else {
+        return `${formatted.toFixed(6)} ${tokenInfo.symbol}`;
+    }
+}
+
+// Gas for submitting through bounty contract (~370k)
+const BOUNTY_SUBMIT_GAS = 370000;
 
 // Initialize providers for current network
 function initProviders() {
@@ -518,6 +695,8 @@ async function switchNetwork(networkId) {
     // Clean up current state
     cleanupEventListeners();
     stopMyReportsTimer();
+    stopBountyUpdateTimer();
+    cachedBounties = {};
 
     // Switch network
     currentNetworkId = networkId;
@@ -624,6 +803,9 @@ async function init() {
         // Start ETH price feed via Coinbase
         connectCoinbaseWs();
 
+        // Start OP price updates (for bounty calculations)
+        startOpPriceUpdates();
+
         // Update network UI
         updateNetworkUI();
 
@@ -651,10 +833,23 @@ function setupEventListeners(reportId) {
     const reportIdBN = ethers.BigNumber.from(reportId);
 
     // InitialReportSubmitted
+    // Event params: reportId, reporter, amount1, amount2, token1, token2, swapFee, protocolFee,
+    //               settlementTime, disputeDelay, escalationHalt, timeType, callbackContract,
+    //               callbackSelector, trackDisputes, callbackGasLimit, stateHash, blockTimestamp
     const initialFilter = oracleContract.filters.InitialReportSubmitted(reportIdBN);
     const initialHandler = (rid, reporter, amount1, amount2, ...rest) => {
-        console.log(`Event: InitialReportSubmitted for report #${rid.toString()}`);
+        const eventStateHash = rest[12]; // stateHash is 13th param after the first 4
+        console.log(`Event: InitialReportSubmitted for report #${rid.toString()} by ${reporter}`);
         if (rid.eq(reportIdBN)) {
+            // Skip if this is our own action (same address + stateHash + recent)
+            if (userAddress &&
+                reporter.toLowerCase() === userAddress.toLowerCase() &&
+                lastSubmittedStateHash &&
+                eventStateHash === lastSubmittedStateHash &&
+                Date.now() - lastUserRefreshTime < 5000) {
+                console.log('Skipping event refresh - our own submission (stateHash verified)');
+                return;
+            }
             refreshCurrentReport();
         }
     };
@@ -662,21 +857,39 @@ function setupEventListeners(reportId) {
     eventListeners.push({ filter: initialFilter, handler: initialHandler });
 
     // ReportDisputed
+    // Event params: same structure as InitialReportSubmitted
     const disputeFilter = oracleContract.filters.ReportDisputed(reportIdBN);
     const disputeHandler = (rid, disputer, newAmount1, newAmount2, ...rest) => {
-        console.log(`Event: ReportDisputed for report #${rid.toString()}`);
+        const eventStateHash = rest[12]; // stateHash is 13th param after the first 4
+        console.log(`Event: ReportDisputed for report #${rid.toString()} by ${disputer}`);
         if (rid.eq(reportIdBN)) {
+            // Skip if this is our own action (same address + stateHash + recent)
+            if (userAddress &&
+                disputer.toLowerCase() === userAddress.toLowerCase() &&
+                lastSubmittedStateHash &&
+                eventStateHash === lastSubmittedStateHash &&
+                Date.now() - lastUserRefreshTime < 5000) {
+                console.log('Skipping event refresh - our own dispute (stateHash verified)');
+                return;
+            }
             refreshCurrentReport();
         }
     };
     oracleContract.on(disputeFilter, disputeHandler);
     eventListeners.push({ filter: disputeFilter, handler: disputeHandler });
 
-    // ReportSettled
+    // ReportSettled - no address to check, but settlements don't change state much
+    // and double-refresh on settle is less problematic
     const settleFilter = oracleContract.filters.ReportSettled(reportIdBN);
     const settleHandler = (rid, price, settlementTimestamp, blockTimestamp) => {
         console.log(`Event: ReportSettled for report #${rid.toString()}`);
         if (rid.eq(reportIdBN)) {
+            // For settle, just use the timestamp since anyone can settle
+            // and we already refreshed after our own settle
+            if (Date.now() - lastUserRefreshTime < 5000) {
+                console.log('Skipping event refresh - recent settle action');
+                return;
+            }
             refreshCurrentReport();
         }
     };
@@ -719,6 +932,9 @@ function cleanupEventListeners() {
     const eventStatus = document.getElementById('eventStatus');
     if (eventStatus) eventStatus.style.display = 'none';
 
+    // Stop breakeven update timer
+    stopBreakevenUpdateTimer();
+
     // Note: Don't stop countdown here - it will be managed by renderReport
     // Clear live USD values
     liveUsdValues = null;
@@ -747,9 +963,9 @@ function startCountdown(reportTimestamp, settlementTime) {
         console.log(`Countdown tick: remaining=${remaining}s`);
 
         if (remaining <= 0) {
-            // Refresh display to show Settle button
+            // Refresh display to show Settle button (force re-render to update UI even if on-chain data unchanged)
             stopCountdown();
-            refreshCurrentReport();
+            refreshCurrentReport(true);
             return;
         } else {
             // Format as mm:ss or just seconds
@@ -833,8 +1049,10 @@ function updateLiveUsdValues() {
 
 // Refresh the current report data and UI
 let isRefreshing = false; // Guard against concurrent refreshes
+let lastUserRefreshTime = 0; // Timestamp of last user-initiated refresh (to skip event-triggered duplicates)
+let lastSubmittedStateHash = null; // StateHash from our last submission (to verify event matches)
 
-async function refreshCurrentReport() {
+async function refreshCurrentReport(forceRerender = false) {
     if (!currentReportId) return;
     if (isRefreshing) {
         console.log('Refresh already in progress, skipping');
@@ -852,8 +1070,8 @@ async function refreshCurrentReport() {
 
         const report = data[0];
 
-        // Only re-render if data actually changed
-        if (currentReport &&
+        // Only re-render if data actually changed (unless forceRerender is true)
+        if (!forceRerender && currentReport &&
             report.currentAmount1.eq(currentReport.currentAmount1) &&
             report.currentAmount2.eq(currentReport.currentAmount2) &&
             report.currentReporter === currentReport.currentReporter &&
@@ -867,11 +1085,14 @@ async function refreshCurrentReport() {
         const token1Info = await getTokenInfo(report.token1);
         const token2Info = await getTokenInfo(report.token2);
 
+        // Preserve bounty data from current report
+        const bountyData = currentReport?.bountyData || null;
+
         // Update global state
-        currentReport = { ...report, token1Info, token2Info };
+        currentReport = { ...report, token1Info, token2Info, bountyData };
 
         // Re-render
-        renderReport(report, token1Info, token2Info);
+        renderReport(report, token1Info, token2Info, bountyData);
 
         console.log(`Report refreshed from block ${raceResult.blockNum}`);
     } catch (e) {
@@ -940,8 +1161,24 @@ async function updateGasPrice() {
         const p = providers[gasProviderIndex % providers.length];
         gasProviderIndex++;
 
-        const feeData = await p.getFeeData();
-        currentGasPrice = feeData.gasPrice;
+        // Get gas price from latest block's baseFeePerGas (more accurate for L2s like Optimism)
+        const block = await p.getBlock('latest');
+        if (block) {
+            // Cache block number for block-based bounty calculations
+            currentBlockNumber = block.number;
+            blockNumberUpdatedAt = Date.now();
+
+            if (block.baseFeePerGas) {
+                // Use baseFee + small priority fee buffer
+                const priorityFee = ethers.utils.parseUnits('0.001', 'gwei'); // minimal priority on L2
+                currentGasPrice = block.baseFeePerGas.add(priorityFee);
+            } else {
+                // Fallback to getFeeData for chains without EIP-1559
+                const feeData = await p.getFeeData();
+                currentGasPrice = feeData.gasPrice;
+            }
+        }
+
         document.getElementById('gasPrice').textContent =
             parseFloat(ethers.utils.formatUnits(currentGasPrice, 'gwei')).toFixed(4);
 
@@ -991,6 +1228,25 @@ function connectCoinbaseWs() {
         console.error('WS error:', e);
         setTimeout(connectCoinbaseWs, 5000);
     }
+}
+
+// Fetch OP price from CoinGecko (cached, refreshed every 30s)
+async function fetchOpPrice() {
+    try {
+        const resp = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=optimism&vs_currencies=usd');
+        const data = await resp.json();
+        if (data.optimism && data.optimism.usd) {
+            opPrice = data.optimism.usd;
+            console.log('OP price:', opPrice);
+        }
+    } catch (e) {
+        console.error('Failed to fetch OP price:', e);
+    }
+}
+
+function startOpPriceUpdates() {
+    fetchOpPrice(); // Initial fetch
+    setInterval(fetchOpPrice, 30000); // Refresh every 30s
 }
 
 // Connect wallet (silent - for auto-reconnect)
@@ -1175,8 +1431,11 @@ function toggleReportPane() {
         pane.style.display = 'block';
         // Show breakeven immediately if token1 is WETH (no input needed)
         updateBreakevenVolatility();
+        // Start live update timer if there's a bounty (bounty escalates over time)
+        startBreakevenUpdateTimer();
     } else {
         pane.style.display = 'none';
+        stopBreakevenUpdateTimer();
     }
 }
 
@@ -1256,7 +1515,24 @@ function updateBreakevenVolatility() {
     }
 
     // Reward is in ETH, WETH amount is in ETH - same units, simple ratio
-    const rewardEth = parseFloat(ethers.utils.formatUnits(netReporterReward, 18));
+    let rewardEth = parseFloat(ethers.utils.formatUnits(netReporterReward, 18));
+
+    // Add bounty value converted to ETH equivalent
+    const bountyData = currentReport.bountyData;
+    if (isValidBounty(bountyData)) {
+        const now = Math.floor(Date.now() / 1000);
+        const bountyAmt = calcCurrentBounty(bountyData, now, getEstimatedBlockNumber());
+        const tokenInfo = getBountyTokenInfo(bountyData.bountyToken);
+        const bountyFloat = parseFloat(ethers.utils.formatUnits(bountyAmt, tokenInfo.decimals));
+
+        if (tokenInfo.symbol === 'ETH') {
+            rewardEth += bountyFloat;
+        } else if (tokenInfo.symbol === 'OP' && opPrice && ethPrice) {
+            // Convert OP to ETH: (OP amount * OP price in USD) / ETH price in USD
+            const bountyEth = (bountyFloat * opPrice) / ethPrice;
+            rewardEth += bountyEth;
+        }
+    }
 
     // If reward is negative, breakeven volatility doesn't apply
     if (rewardEth < 0) {
@@ -1689,6 +1965,9 @@ async function submitDispute() {
         const token2Info = report.token2Info;
         const swapInfo = currentDisputeSwapInfo;
 
+        // Store stateHash so event handler can verify this is our dispute
+        lastSubmittedStateHash = report.stateHash;
+
         console.log('=== Submit Dispute Debug ===');
         console.log('reportId:', report.reportId.toString());
         console.log('tokenToSwap:', swapInfo.tokenToSwap);
@@ -1796,6 +2075,9 @@ async function submitDispute() {
         if (pane) pane.style.display = 'none';
         console.log('Dispute submitted successfully!');
 
+        // Mark that we're doing a user-initiated refresh (to skip event-triggered duplicates)
+        lastUserRefreshTime = Date.now();
+
         // Refresh the report display to show new state (skip fresher data to avoid double-refresh)
         await searchReport(true);
 
@@ -1855,6 +2137,9 @@ async function submitInitialReport() {
         // stateHash from contract is already bytes32, use as-is
         const stateHash = report.stateHash;
 
+        // Store stateHash so event handler can verify this is our submission
+        lastSubmittedStateHash = stateHash;
+
         console.log('=== Submit Initial Report Debug ===');
         console.log('reportId:', report.reportId.toString());
         console.log('amount1 (exactToken1Report):', amount1.toString());
@@ -1884,10 +2169,18 @@ async function submitInitialReport() {
             return;
         }
 
+        // Check if there's a valid bounty - if so, submit through bounty contract
+        const bountyData = currentReport.bountyData;
+        const hasBounty = isValidBounty(bountyData);
+        const targetContract = hasBounty ? getBountyContractAddress() : BATCHER_ADDRESS;
+
+        console.log('Has valid bounty:', hasBounty);
+        console.log('Target contract:', targetContract);
+
         // Check both allowances in parallel
         const [allowance1, allowance2] = await Promise.all([
-            token1Contract.allowance(userAddress, BATCHER_ADDRESS),
-            token2Contract.allowance(userAddress, BATCHER_ADDRESS)
+            token1Contract.allowance(userAddress, targetContract),
+            token2Contract.allowance(userAddress, targetContract)
         ]);
         console.log('Token1 allowance:', ethers.utils.formatUnits(allowance1, token1Info.decimals));
         console.log('Token2 allowance:', ethers.utils.formatUnits(allowance2, token2Info.decimals));
@@ -1897,7 +2190,7 @@ async function submitInitialReport() {
         if (allowance1.lt(amount1)) {
             console.log('Approving token1...');
             approvalPromises.push(
-                token1Contract.approve(BATCHER_ADDRESS, amount1)
+                token1Contract.approve(targetContract, amount1)
                     .then(tx => tx.wait())
                     .then(() => console.log('Token1 approved'))
             );
@@ -1905,7 +2198,7 @@ async function submitInitialReport() {
         if (allowance2.lt(amount2)) {
             console.log('Approving token2...');
             approvalPromises.push(
-                token2Contract.approve(BATCHER_ADDRESS, amount2)
+                token2Contract.approve(targetContract, amount2)
                     .then(tx => tx.wait())
                     .then(() => console.log('Token2 approved'))
             );
@@ -1916,30 +2209,81 @@ async function submitInitialReport() {
             await Promise.all(approvalPromises);
         }
 
-        // Build oracleParams and get fresh block info for safe batcher
-        console.log('Building oracleParams and getting fresh block info...');
-        const oracleParams = buildOracleParams(report);
-        const blockInfo = await getFreshBlockInfo();
+        let tx;
+        const gasOverrides = await getGasOverrides();
 
-        console.log('oracleParams:', oracleParams);
-        console.log('blockInfo:', blockInfo);
+        if (hasBounty) {
+            // Submit through bounty contract
+            console.log('Submitting through bounty contract...');
+            const bountyContract = new ethers.Contract(targetContract, BOUNTY_ABI, signer);
 
-        // Submit via safe batcher
-        const batcher = new ethers.Contract(BATCHER_ADDRESS, BATCHER_ABI, signer);
+            // Try to estimate gas first
+            try {
+                const gasEstimate = await bountyContract.estimateGas.submitInitialReport(
+                    report.reportId,
+                    amount1,
+                    amount2,
+                    stateHash
+                );
+                console.log('Gas estimate:', gasEstimate.toString());
+            } catch (gasError) {
+                console.error('Gas estimation failed:', gasError);
+                if (gasError.error && gasError.error.data) {
+                    console.error('Revert data:', gasError.error.data);
+                }
+                throw gasError;
+            }
 
-        const reportData = [{
-            reportId: report.reportId,
-            amount1: amount1,
-            amount2: amount2,
-            stateHash: stateHash
-        }];
+            tx = await bountyContract.submitInitialReport(
+                report.reportId,
+                amount1,
+                amount2,
+                stateHash,
+                gasOverrides
+            );
+        } else {
+            // Submit via safe batcher
+            console.log('Building oracleParams and getting fresh block info...');
+            const oracleParams = buildOracleParams(report);
+            const blockInfo = await getFreshBlockInfo();
 
-        console.log('Calling batcher.submitInitialReportSafe...');
-        console.log('reportData:', JSON.stringify(reportData, (k, v) => typeof v === 'object' && v._isBigNumber ? v.toString() : v, 2));
+            console.log('oracleParams:', oracleParams);
+            console.log('blockInfo:', blockInfo);
 
-        // Try to estimate gas first to get better error message
-        try {
-            const gasEstimate = await batcher.estimateGas.submitInitialReportSafe(
+            const batcher = new ethers.Contract(BATCHER_ADDRESS, BATCHER_ABI, signer);
+
+            const reportData = [{
+                reportId: report.reportId,
+                amount1: amount1,
+                amount2: amount2,
+                stateHash: stateHash
+            }];
+
+            console.log('Calling batcher.submitInitialReportSafe...');
+            console.log('reportData:', JSON.stringify(reportData, (k, v) => typeof v === 'object' && v._isBigNumber ? v.toString() : v, 2));
+
+            // Try to estimate gas first to get better error message
+            try {
+                const gasEstimate = await batcher.estimateGas.submitInitialReportSafe(
+                    reportData,
+                    oracleParams,
+                    amount1,
+                    amount2,
+                    blockInfo.timestamp,
+                    blockInfo.blockNumber,
+                    blockInfo.timestampBound,
+                    blockInfo.blockNumberBound
+                );
+                console.log('Gas estimate:', gasEstimate.toString());
+            } catch (gasError) {
+                console.error('Gas estimation failed:', gasError);
+                if (gasError.error && gasError.error.data) {
+                    console.error('Revert data:', gasError.error.data);
+                }
+                throw gasError;
+            }
+
+            tx = await batcher.submitInitialReportSafe(
                 reportData,
                 oracleParams,
                 amount1,
@@ -1947,30 +2291,10 @@ async function submitInitialReport() {
                 blockInfo.timestamp,
                 blockInfo.blockNumber,
                 blockInfo.timestampBound,
-                blockInfo.blockNumberBound
+                blockInfo.blockNumberBound,
+                gasOverrides
             );
-            console.log('Gas estimate:', gasEstimate.toString());
-        } catch (gasError) {
-            console.error('Gas estimation failed:', gasError);
-            // Try to decode revert reason
-            if (gasError.error && gasError.error.data) {
-                console.error('Revert data:', gasError.error.data);
-            }
-            throw gasError;
         }
-
-        const gasOverrides = await getGasOverrides();
-        const tx = await batcher.submitInitialReportSafe(
-            reportData,
-            oracleParams,
-            amount1,
-            amount2,
-            blockInfo.timestamp,
-            blockInfo.blockNumber,
-            blockInfo.timestampBound,
-            blockInfo.blockNumberBound,
-            gasOverrides
-        );
         console.log('TX sent:', tx.hash);
 
         const receipt = await tx.wait();
@@ -1983,6 +2307,9 @@ async function submitInitialReport() {
         const pane = document.getElementById('reportPane');
         if (pane) pane.style.display = 'none';
         console.log('Initial report submitted successfully!');
+
+        // Mark that we're doing a user-initiated refresh (to skip event-triggered duplicates)
+        lastUserRefreshTime = Date.now();
 
         // Refresh the report display to show new state (skip fresher data to avoid double-refresh)
         await searchReport(true);
@@ -2061,6 +2388,9 @@ async function settleReport(reportId) {
         const receipt = await tx.wait();
         console.log('TX confirmed:', receipt);
 
+        // Mark that we're doing a user-initiated refresh (to skip event-triggered duplicates)
+        lastUserRefreshTime = Date.now();
+
         // Refresh the report view (skip fresher data to avoid double-refresh)
         searchReport(true);
         console.log('Report settled successfully!');
@@ -2116,12 +2446,15 @@ async function searchReport(skipFresherData = false) {
             const token1Info = await getTokenInfo(report.token1);
             const token2Info = await getTokenInfo(report.token2);
 
+            // Use cached bounty data from initial render
+            const bountyData = currentReport?.bountyData || null;
+
             // Update global state
-            currentReport = { ...report, token1Info, token2Info };
+            currentReport = { ...report, token1Info, token2Info, bountyData };
 
             // Re-render with fresher data
             console.log(`Re-rendering with fresher data from block ${fresherResult.blockNum}`);
-            renderReport(report, token1Info, token2Info);
+            renderReport(report, token1Info, token2Info, bountyData);
         };
 
         const raceResult = await raceGetData(reportId, onFresherData);
@@ -2151,11 +2484,19 @@ async function searchReport(skipFresherData = false) {
         const token1Info = await getTokenInfo(report.token1);
         const token2Info = await getTokenInfo(report.token2);
 
+        // Fetch bounty data if awaiting initial report and network has bounty contract
+        let bountyData = null;
+        const hasInitialReport = report.currentReporter !== ethers.constants.AddressZero;
+        if (!hasInitialReport && getBountyContractAddress()) {
+            const bounties = await fetchBountyData([reportId]);
+            bountyData = bounties[reportId] || null;
+        }
+
         // Store for actions (spread to make mutable copy)
-        currentReport = { ...report, token1Info, token2Info };
+        currentReport = { ...report, token1Info, token2Info, bountyData };
 
         // Render the report
-        renderReport(report, token1Info, token2Info);
+        renderReport(report, token1Info, token2Info, bountyData);
 
         // Set up event listeners for this report
         setupEventListeners(reportId);
@@ -2254,7 +2595,12 @@ function calculateDisputeGasCost() {
     return currentGasPrice.mul(gasUsed);
 }
 
-function renderReport(report, token1Info, token2Info) {
+function calculateBountySubmitGasCost() {
+    if (!currentGasPrice) return null;
+    return currentGasPrice.mul(BOUNTY_SUBMIT_GAS);
+}
+
+function renderReport(report, token1Info, token2Info, bountyData = null) {
     const resultBox = document.getElementById('resultBox');
 
     // Determine report state
@@ -2291,39 +2637,109 @@ function renderReport(report, token1Info, token2Info) {
         const isSettleable = remaining <= 0;
 
         if (isSettleable) {
-            // Settleable - just show Settle button with net reward
+            // Settleable - show Settle button with net reward
             const settleGasCost = calculateSettleGasCost(report.callbackGasLimit);
-            let netRewardStr = '';
+            let netRewardHtml = '';
             if (settleGasCost && report.settlerReward) {
                 const netReward = report.settlerReward.sub(settleGasCost);
                 const netRewardEth = parseFloat(ethers.utils.formatUnits(netReward, 18));
                 const netRewardUsd = ethPrice ? netRewardEth * ethPrice : 0;
-                const rewardClass = netRewardUsd >= 0 ? 'color: #10b981;' : 'color: #ef4444;';
-                netRewardStr = `<span style="font-size: 12px; ${rewardClass} margin-left: 8px;">Net: ${ethPrice ? '$' + netRewardUsd.toFixed(4) : netRewardEth.toFixed(6) + ' ETH'}</span>`;
+                const rewardClass = netRewardUsd >= 0 ? 'positive' : 'negative';
+                const rewardSign = netRewardUsd >= 0 ? '+' : '';
+                netRewardHtml = `
+                    <div class="status-metric">
+                        <span class="metric-label">Settler Reward</span>
+                        <span class="metric-value ${rewardClass}">${rewardSign}$${Math.abs(netRewardUsd).toFixed(4)}</span>
+                    </div>`;
             }
-            statusBadge = `<span class="pending-badge">Pending Settlement</span><button class="settle-btn" onclick="settleReport(${report.reportId})" style="background: #10b981; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: 500; margin-left: 8px;">Settle</button>${netRewardStr}`;
+            statusBadge = `
+                <div class="status-card">
+                    <div class="badge-section">
+                        <span class="settled-badge">Ready to Settle</span>
+                        <button class="report-action-btn" onclick="settleReport(${report.reportId})">Settle</button>
+                    </div>
+                    <div class="metrics-section">${netRewardHtml}</div>
+                </div>`;
         } else {
             // Not settleable yet - show countdown and dispute button
             const timeStr = remaining >= 60 ? `${Math.floor(remaining / 60)}m ${remaining % 60}s` : `${remaining}s`;
             const canDispute = report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT && isSettlementTimeValid(report);
-            const disputeBtn = canDispute ? `<button class="dispute-btn" onclick="toggleDisputePane()">Dispute</button>` : '';
-            statusBadge = `<span class="pending-badge">Pending Settlement</span><span id="settlementCountdown" class="countdown-timer">${timeStr}</span>${disputeBtn}`;
+            const disputeBtnHtml = canDispute ? `<button class="dispute-btn" onclick="toggleDisputePane()">Dispute</button>` : '';
+            statusBadge = `
+                <div class="status-card">
+                    <div class="badge-section">
+                        <span class="pending-badge">Pending Settlement</span>
+                        <div class="countdown-display">
+                            <span class="countdown-label">Settles in</span>
+                            <span id="settlementCountdown" class="countdown-timer">${timeStr}</span>
+                        </div>
+                        ${disputeBtnHtml}
+                    </div>
+                </div>`;
         }
     } else {
         const rewardEth = parseFloat(ethers.utils.formatUnits(netReporterReward, 18));
-        const rewardUsd = ethPrice ? (rewardEth * ethPrice).toPrecision(2) : '??';
-        const rewardColor = (ethPrice && rewardEth * ethPrice >= 0) ? '#10b981' : '#ef4444';
+        let rewardUsd = ethPrice ? (rewardEth * ethPrice) : 0;
         const liqFloat = parseFloat(ethers.utils.formatUnits(report.exactToken1Report, token1Info.decimals));
         const liqStr = liqFloat.toPrecision(2) + ' ' + token1Info.symbol;
 
+        // Check for bounty (ETH/OP only)
+        let bountyHtml = '';
+        const hasBounty = isValidBounty(bountyData);
+        if (hasBounty) {
+            const now = Math.floor(Date.now() / 1000);
+            const bountyAmt = calcCurrentBounty(bountyData, now, getEstimatedBlockNumber());
+            const tokenInfo = getBountyTokenInfo(bountyData.bountyToken);
+
+            // Add bounty to reward USD
+            if (tokenInfo.symbol === 'ETH' && ethPrice) {
+                const bountyEth = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
+                rewardUsd += bountyEth * ethPrice;
+            } else if (tokenInfo.symbol === 'OP' && opPrice) {
+                const bountyOp = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
+                rewardUsd += bountyOp * opPrice;
+            }
+
+            bountyHtml = `
+                <div class="status-metric">
+                    <span class="metric-label">Bounty</span>
+                    <span id="singleBountyDisplay" class="metric-value bounty">+${formatBountyAmount(bountyAmt, tokenInfo)}</span>
+                </div>`;
+        }
+
+        const rewardClass = rewardUsd >= 0 ? 'positive' : 'negative';
+        const rewardSign = rewardUsd >= 0 ? '+' : '';
+        const rewardUsdStr = ethPrice ? `${rewardSign}$${Math.abs(rewardUsd).toFixed(4)}` : '??';
+
         // Don't show Report button if callbackGasLimit is too high
         const canReport = report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT && isSettlementTimeValid(report);
-        let reportBtnReason = '';
-        if (report.callbackGasLimit > MAX_CALLBACK_GAS_REPORT) reportBtnReason = 'Gas limit too high';
-        else if (!isSettlementTimeValid(report)) reportBtnReason = 'Settlement time too high';
-        const reportBtn = canReport ? `<button class="report-btn" onclick="toggleReportPane()">Report</button>` : `<span style="font-size: 11px; color: #ef4444;">${reportBtnReason}</span>`;
+        let reportBtnHtml = '';
+        if (canReport) {
+            reportBtnHtml = `<button class="report-action-btn" onclick="toggleReportPane()">Report</button>`;
+        } else {
+            let reason = '';
+            if (report.callbackGasLimit > MAX_CALLBACK_GAS_REPORT) reason = 'Gas limit too high';
+            else if (!isSettlementTimeValid(report)) reason = 'Settlement time too high';
+            reportBtnHtml = `<span style="font-size: 0.7rem; color: #ef4444; font-family: var(--font-mono);">${reason}</span>`;
+        }
 
-        statusBadge = `<span style="display: inline-flex; align-items: center; gap: 8px; vertical-align: middle;"><span class="no-report-badge">Awaiting Initial Report</span>${reportBtn}<span style="font-size: 13px; color: ${rewardColor};">Reward: ~$${rewardUsd}</span><span style="font-size: 13px; color: #888;">Liquidity: ~${liqStr}</span></span>`;
+        statusBadge = `
+            <div class="status-card">
+                <div class="badge-section">
+                    <span class="no-report-badge">Awaiting Report</span>
+                    ${reportBtnHtml}
+                </div>
+                <div class="metrics-section">
+                    <div class="status-metric">
+                        <span class="metric-label">Net Reward</span>
+                        <span class="metric-value ${rewardClass}">${rewardUsdStr}</span>
+                    </div>${bountyHtml}
+                    <div class="status-metric">
+                        <span class="metric-label">Liquidity</span>
+                        <span class="metric-value neutral">${liqStr}</span>
+                    </div>
+                </div>
+            </div>`;
     }
 
     // Report pane HTML (shown above header when opened) - only if gas limit and settlement time are acceptable
@@ -2549,6 +2965,9 @@ function renderReport(report, token1Info, token2Info) {
     } else {
         stopCountdown();
     }
+
+    // Start bounty live update timer if report has a bounty
+    startSingleBountyTimer();
 }
 
 function calculateDisputeInfo(report, token1Info, token2Info) {
@@ -2749,6 +3168,18 @@ function switchTab(tab) {
         stopMyReportsTimer();
     }
 
+    // Stop bounty update timer when leaving overview tab
+    if (tab !== 'overview') {
+        stopBountyUpdateTimer();
+        cachedBounties = {}; // Clear cached bounties
+    }
+
+    // Stop bounty and breakeven update timers when leaving single tab
+    if (tab !== 'single') {
+        stopSingleBountyTimer();
+        stopBreakevenUpdateTimer();
+    }
+
     // Update tab buttons
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     const tabIndex = tab === 'single' ? 1 : tab === 'overview' ? 2 : tab === 'myreports' ? 3 : 4;
@@ -2866,12 +3297,27 @@ async function loadOverview(autoDetect = false) {
         const chunkResults = await Promise.all(chunkPromises);
         const reports = chunkResults.flat();
 
+        // Collect reportIds awaiting initial report to fetch bounty data
+        const awaitingReportIds = reports
+            .filter(r => !r.isDistributed && r.callbackGasLimit <= MAX_CALLBACK_GAS && r.currentReporter === ethers.constants.AddressZero)
+            .map(r => r.reportId);
+
+        // Fetch bounty data for awaiting reports (only if network has bounty contract)
+        let bountyData = {};
+        if (getBountyContractAddress() && awaitingReportIds.length > 0) {
+            console.log(`Fetching bounty data for ${awaitingReportIds.length} awaiting reports...`);
+            bountyData = await fetchBountyData(awaitingReportIds);
+            cachedBounties = { ...cachedBounties, ...bountyData };
+            console.log(`Found ${Object.keys(bountyData).length} reports with bounties`);
+        }
+
         let awaiting = 0;
         let disputed = 0;
         let settleable = 0;
         let skipped = 0;
 
         const grid = document.getElementById('reportsGrid');
+        const now = Math.floor(Date.now() / 1000);
         let html = '';
 
         for (const report of reports) {
@@ -2893,6 +3339,7 @@ async function loadOverview(autoDetect = false) {
 
             // Determine status and calculate appropriate value
             let statusClass, statusText, valueLabel, valueUsd, valueClass;
+            let bountyStr = ''; // Bounty display string (only for awaiting reports)
 
             if (!hasInitialReport) {
                 // Awaiting initial report - show reporter reward
@@ -2901,8 +3348,13 @@ async function loadOverview(autoDetect = false) {
                 valueLabel = 'Reward';
                 awaiting++;
 
+                // Check for bounty (ETH/OP only)
+                const bounty = bountyData[report.reportId];
+                let hasBounty = isValidBounty(bounty);
+
                 const settleGasCost = calculateSettleGasCost(report.callbackGasLimit);
-                const submitGasCost = calculateInitialReportGasCost();
+                // Use bounty submit gas if there's a bounty, otherwise normal submit gas
+                const submitGasCost = hasBounty ? calculateBountySubmitGasCost() : calculateInitialReportGasCost();
                 const netSettlerReward = settleGasCost ? report.settlerReward.sub(settleGasCost) : ethers.BigNumber.from(0);
                 let netReward;
                 if (netSettlerReward.lt(0)) {
@@ -2916,6 +3368,30 @@ async function loadOverview(autoDetect = false) {
                 }
                 const rewardEth = parseFloat(ethers.utils.formatUnits(netReward, 18));
                 valueUsd = ethPrice ? (rewardEth * ethPrice) : 0;
+
+                // Store base reward (without bounty) for live updates
+                const baseRewardUsd = valueUsd;
+
+                // Add bounty to reward if available (ETH/OP only)
+                if (hasBounty) {
+                    const bountyAmt = calcCurrentBounty(bounty, now, getEstimatedBlockNumber());
+                    const tokenInfo = getBountyTokenInfo(bounty.bountyToken);
+                    bountyStr = formatBountyAmount(bountyAmt, tokenInfo);
+
+                    // Store bounty data for live updates (only ETH/OP)
+                    cachedBounties[report.reportId] = {
+                        ...bounty,
+                        tokenInfo: tokenInfo,
+                        baseRewardUsd: baseRewardUsd
+                    };
+
+                    // Add bounty value to USD total if it's ETH
+                    if (tokenInfo.symbol === 'ETH' && ethPrice) {
+                        const bountyEth = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
+                        valueUsd += bountyEth * ethPrice;
+                    }
+                }
+
                 valueClass = valueUsd >= 0 ? 'profit' : 'loss';
             } else {
                 // Has initial report - check if settleable or disputable
@@ -3009,6 +3485,16 @@ async function loadOverview(autoDetect = false) {
                     <span class="report-box-value">${settlementStr}</span>
                 </div>`;
 
+            // Bounty row (only for awaiting reports with bounty)
+            const bountyRow = bountyStr ? `
+                <div class="report-box-row">
+                    <span class="report-box-label">Bounty</span>
+                    <span class="report-box-value bounty" data-report-id="${report.reportId}">+${bountyStr}</span>
+                </div>` : '';
+
+            // Add data attribute for live bounty updates
+            const rewardDataAttr = bountyStr ? `data-report-id="${report.reportId}"` : '';
+
             html += `
             <div class="report-box ${statusClass}" onclick="viewReport(${report.reportId})">
                 <div class="report-box-header">
@@ -3017,14 +3503,19 @@ async function loadOverview(autoDetect = false) {
                 </div>
                 <div class="report-box-row">
                     <span class="report-box-label">${valueLabel}</span>
-                    <span class="report-box-value ${valueClass}">${valueStr}</span>
-                </div>${settleRow}
+                    <span class="report-box-value ${valueClass}" ${rewardDataAttr}>${valueStr}</span>
+                </div>${bountyRow}${settleRow}
             </div>`;
         }
 
         grid.innerHTML = html || '<div class="overview-loading">No unsettled reports in this range</div>';
         document.getElementById('overviewStats').textContent =
             `${awaiting} open, ${disputed} disputable, ${settleable} settleable, ${skipped} skipped (high gas)`;
+
+        // Start bounty live update timer if there are bounties
+        if (Object.keys(cachedBounties).length > 0) {
+            startBountyUpdateTimer();
+        }
 
     } catch (e) {
         console.error('Overview error:', e);
@@ -3033,6 +3524,101 @@ async function loadOverview(autoDetect = false) {
     }
 
     document.getElementById('overviewLoading').style.display = 'none';
+}
+
+// Bounty live update timer
+let bountyUpdateInterval = null;
+
+function startBountyUpdateTimer() {
+    stopBountyUpdateTimer();
+    bountyUpdateInterval = setInterval(updateBountyDisplays, 2000); // 2s = Optimism block time
+}
+
+function stopBountyUpdateTimer() {
+    if (bountyUpdateInterval) {
+        clearInterval(bountyUpdateInterval);
+        bountyUpdateInterval = null;
+    }
+}
+
+// Single report bounty live update timer
+let singleBountyUpdateInterval = null;
+
+function updateSingleBountyDisplay() {
+    if (!currentReport || !isValidBounty(currentReport.bountyData)) return;
+
+    const bounty = currentReport.bountyData;
+    const now = Math.floor(Date.now() / 1000);
+    const bountyAmt = calcCurrentBounty(bounty, now, getEstimatedBlockNumber());
+    const tokenInfo = getBountyTokenInfo(bounty.bountyToken);
+
+    const singleBountyEl = document.getElementById('singleBountyDisplay');
+    if (singleBountyEl) {
+        singleBountyEl.textContent = `+${formatBountyAmount(bountyAmt, tokenInfo)}`;
+    }
+}
+
+function startSingleBountyTimer() {
+    stopSingleBountyTimer();
+    if (currentReport && isValidBounty(currentReport.bountyData)) {
+        // Update immediately, then every 2 seconds
+        updateSingleBountyDisplay();
+        singleBountyUpdateInterval = setInterval(updateSingleBountyDisplay, 2000);
+    }
+}
+
+function stopSingleBountyTimer() {
+    if (singleBountyUpdateInterval) {
+        clearInterval(singleBountyUpdateInterval);
+        singleBountyUpdateInterval = null;
+    }
+}
+
+// Breakeven volatility live update timer (for when there's a bounty on current report)
+let breakevenUpdateInterval = null;
+
+function startBreakevenUpdateTimer() {
+    stopBreakevenUpdateTimer();
+    // Only start if current report has a valid bounty
+    if (currentReport && isValidBounty(currentReport.bountyData)) {
+        breakevenUpdateInterval = setInterval(updateBreakevenVolatility, 2000);
+    }
+}
+
+function stopBreakevenUpdateTimer() {
+    if (breakevenUpdateInterval) {
+        clearInterval(breakevenUpdateInterval);
+        breakevenUpdateInterval = null;
+    }
+}
+
+function updateBountyDisplays() {
+    const now = Math.floor(Date.now() / 1000);
+
+    for (const [reportId, bounty] of Object.entries(cachedBounties)) {
+        if (bounty.claimed || bounty.recalled) continue;
+
+        const bountyAmt = calcCurrentBounty(bounty, now, getEstimatedBlockNumber());
+        const tokenInfo = bounty.tokenInfo;
+        const bountyStr = formatBountyAmount(bountyAmt, tokenInfo);
+
+        // Update bounty display
+        const bountyEl = document.querySelector(`.report-box-value.bounty[data-report-id="${reportId}"]`);
+        if (bountyEl) {
+            bountyEl.textContent = `+${bountyStr}`;
+        }
+
+        // Update reward display (base + bounty for ETH)
+        const rewardEl = document.querySelector(`.report-box-value[data-report-id="${reportId}"]:not(.bounty)`);
+        if (rewardEl && tokenInfo.symbol === 'ETH' && ethPrice) {
+            const bountyEth = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
+            const bountyUsd = bountyEth * ethPrice;
+            const totalUsd = bounty.baseRewardUsd + bountyUsd;
+            const valueStr = Math.abs(totalUsd) >= 0.01 ? `$${totalUsd.toFixed(2)}` : `$${totalUsd.toFixed(4)}`;
+            rewardEl.textContent = valueStr;
+            rewardEl.className = `report-box-value ${totalUsd >= 0 ? 'profit' : 'loss'}`;
+        }
+    }
 }
 
 // Click on a report box to view it

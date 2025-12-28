@@ -896,6 +896,11 @@
             color: var(--accent-red);
         }
 
+        .report-box-value.bounty {
+            color: #a855f7; /* Purple for bounty */
+            font-weight: 600;
+        }
+
         .overview-loading {
             text-align: center;
             padding: 60px;
@@ -1029,41 +1034,158 @@
         /* Badge classes for dynamic content */
         .settled-badge {
             font-family: var(--font-mono);
-            font-size: 0.7rem;
-            font-weight: 600;
-            padding: 5px 12px;
-            border-radius: 20px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 6px 14px;
+            border-radius: 4px;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            background: rgba(0, 255, 136, 0.15);
-            color: var(--accent-green);
-            border: 1px solid rgba(0, 255, 136, 0.3);
+            letter-spacing: 1px;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.15) 100%);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            box-shadow: 0 0 12px rgba(16, 185, 129, 0.15);
         }
 
         .pending-badge {
             font-family: var(--font-mono);
-            font-size: 0.7rem;
-            font-weight: 600;
-            padding: 5px 12px;
-            border-radius: 20px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 6px 14px;
+            border-radius: 4px;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            background: rgba(255, 184, 0, 0.15);
-            color: var(--accent-amber);
-            border: 1px solid rgba(255, 184, 0, 0.3);
+            letter-spacing: 1px;
+            background: linear-gradient(135deg, rgba(255, 184, 0, 0.2) 0%, rgba(245, 158, 11, 0.15) 100%);
+            color: #fbbf24;
+            border: 1px solid rgba(255, 184, 0, 0.4);
+            box-shadow: 0 0 12px rgba(255, 184, 0, 0.15);
         }
 
         .no-report-badge {
             font-family: var(--font-mono);
-            font-size: 0.7rem;
-            font-weight: 600;
-            padding: 5px 12px;
-            border-radius: 20px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 6px 14px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(139, 92, 246, 0.15) 100%);
+            color: #a5b4fc;
+            border: 1px solid rgba(139, 92, 246, 0.4);
+            box-shadow: 0 0 12px rgba(139, 92, 246, 0.15);
+        }
+
+        /* Status card container for organized display */
+        .status-card {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 0;
+        }
+
+        .status-card .badge-section {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-card .metrics-section {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-left: auto;
+        }
+
+        .status-metric {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .status-metric .metric-label {
+            font-family: var(--font-mono);
+            font-size: 0.6rem;
+            font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            background: rgba(139, 156, 184, 0.15);
+            color: var(--text-muted);
+        }
+
+        .status-metric .metric-value {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .status-metric .metric-value.positive {
+            color: #10b981;
+            text-shadow: 0 0 8px rgba(16, 185, 129, 0.3);
+        }
+
+        .status-metric .metric-value.negative {
+            color: #ef4444;
+        }
+
+        .status-metric .metric-value.bounty {
+            background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: 700;
+        }
+
+        .status-metric .metric-value.neutral {
             color: var(--text-secondary);
-            border: 1px solid rgba(139, 156, 184, 0.3);
+        }
+
+        /* Report action button - more prominent */
+        .report-action-btn {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+        }
+
+        .report-action-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        }
+
+        .report-action-btn:active {
+            transform: translateY(0);
+        }
+
+        /* Pending status with countdown */
+        .pending-status-card {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .countdown-display {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .countdown-display .countdown-label {
+            font-family: var(--font-mono);
+            font-size: 0.65rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
         }
 
         .countdown-timer {
