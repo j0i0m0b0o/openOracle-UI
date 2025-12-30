@@ -53,7 +53,7 @@ const NETWORKS = {
             dataProvider: '0x4f9041CCAea126119A1fe62F40A24e7556f1357b',
             oracle: '0xf3CCE3274c32f1F344Ba48336D5EFF34dc6E145f',
             batcher: '0x6D5dCF8570572e106eF1602ef2152BC363dAeC8b',
-            bountyContract: '0xA0Fac46231EA6964A0d7c75C4CB01a87Cfb638D1',
+            bountyContract: '0xe55E2588ec9C0e13c4AF987C502D3DeBB6204A64',
             weth: '0x4200000000000000000000000000000000000006',
             usdc: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
             op: '0x4200000000000000000000000000000000000042'
@@ -504,9 +504,36 @@ const BOUNTY_ABI = [
     {
         "inputs": [
             {"name": "reportId", "type": "uint256"},
+            {
+                "name": "p",
+                "type": "tuple",
+                "components": [
+                    {"name": "exactToken1Report", "type": "uint256"},
+                    {"name": "escalationHalt", "type": "uint256"},
+                    {"name": "fee", "type": "uint256"},
+                    {"name": "settlerReward", "type": "uint256"},
+                    {"name": "token1", "type": "address"},
+                    {"name": "settlementTime", "type": "uint48"},
+                    {"name": "token2", "type": "address"},
+                    {"name": "timeType", "type": "bool"},
+                    {"name": "feePercentage", "type": "uint24"},
+                    {"name": "protocolFee", "type": "uint24"},
+                    {"name": "multiplier", "type": "uint16"},
+                    {"name": "disputeDelay", "type": "uint24"},
+                    {"name": "currentAmount1", "type": "uint256"},
+                    {"name": "currentAmount2", "type": "uint256"},
+                    {"name": "callbackGasLimit", "type": "uint32"},
+                    {"name": "protocolFeeRecipient", "type": "address"},
+                    {"name": "keepFee", "type": "bool"}
+                ]
+            },
             {"name": "amount1", "type": "uint256"},
             {"name": "amount2", "type": "uint256"},
-            {"name": "stateHash", "type": "bytes32"}
+            {"name": "stateHash", "type": "bytes32"},
+            {"name": "timestamp", "type": "uint256"},
+            {"name": "blockNumber", "type": "uint256"},
+            {"name": "timestampBound", "type": "uint256"},
+            {"name": "blockNumberBound", "type": "uint256"}
         ],
         "name": "submitInitialReport",
         "outputs": [],
@@ -2213,17 +2240,28 @@ async function submitInitialReport() {
         const gasOverrides = await getGasOverrides();
 
         if (hasBounty) {
-            // Submit through bounty contract
-            console.log('Submitting through bounty contract...');
+            // Submit through bounty contract with oracleParams validation
+            console.log('Building oracleParams and getting fresh block info for bounty submission...');
+            const oracleParams = buildOracleParams(report);
+            const blockInfo = await getFreshBlockInfo();
+
+            console.log('oracleParams:', oracleParams);
+            console.log('blockInfo:', blockInfo);
+
             const bountyContract = new ethers.Contract(targetContract, BOUNTY_ABI, signer);
 
             // Try to estimate gas first
             try {
                 const gasEstimate = await bountyContract.estimateGas.submitInitialReport(
                     report.reportId,
+                    oracleParams,
                     amount1,
                     amount2,
-                    stateHash
+                    stateHash,
+                    blockInfo.timestamp,
+                    blockInfo.blockNumber,
+                    blockInfo.timestampBound,
+                    blockInfo.blockNumberBound
                 );
                 console.log('Gas estimate:', gasEstimate.toString());
             } catch (gasError) {
@@ -2236,9 +2274,14 @@ async function submitInitialReport() {
 
             tx = await bountyContract.submitInitialReport(
                 report.reportId,
+                oracleParams,
                 amount1,
                 amount2,
                 stateHash,
+                blockInfo.timestamp,
+                blockInfo.blockNumber,
+                blockInfo.timestampBound,
+                blockInfo.blockNumberBound,
                 gasOverrides
             );
         } else {

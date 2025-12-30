@@ -139,7 +139,7 @@ This lets you:
 | Oracle | [`0xf3CCE3274c32f1F344Ba48336D5EFF34dc6E145f`](https://optimistic.etherscan.io/address/0xf3CCE3274c32f1F344Ba48336D5EFF34dc6E145f) |
 | Data Provider | [`0x4f9041CCAea126119A1fe62F40A24e7556f1357b`](https://optimistic.etherscan.io/address/0x4f9041CCAea126119A1fe62F40A24e7556f1357b) |
 | Batcher | [`0x6D5dCF8570572e106eF1602ef2152BC363dAeC8b`](https://optimistic.etherscan.io/address/0x6D5dCF8570572e106eF1602ef2152BC363dAeC8b) |
-| Bounty | [`0xA0Fac46231EA6964A0d7c75C4CB01a87Cfb638D1`](https://optimistic.etherscan.io/address/0xA0Fac46231EA6964A0d7c75C4CB01a87Cfb638D1) |
+| Bounty | [`0xe55E2588ec9C0e13c4AF987C502D3DeBB6204A64`](https://optimistic.etherscan.io/address/0xe55E2588ec9C0e13c4AF987C502D3DeBB6204A64) |
 | WETH | [`0x4200000000000000000000000000000000000006`](https://optimistic.etherscan.io/address/0x4200000000000000000000000000000000000006) |
 | USDC | [`0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85`](https://optimistic.etherscan.io/address/0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85) |
 | OP | [`0x4200000000000000000000000000000000000042`](https://optimistic.etherscan.io/address/0x4200000000000000000000000000000000000042) |
