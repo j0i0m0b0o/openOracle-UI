@@ -1,16 +1,16 @@
 # openOracle Report Viewer
 
-A web-based interface for viewing and interacting with openOracle reports on Base, Ethereum, and OP Mainnet.
+A web-based interface for viewing and interacting with openOracle reports on OP Mainnet.
 
 ## Overview
 
 openOracle is a decentralized oracle system that allows users to submit and dispute price reports for token pairs. This viewer provides:
 
+- **OP Grant Rewards**: Earn OP tokens by starting games and submitting price reports
 - **Single Report View**: Search and view detailed information for any report ID
 - **Overview Dashboard**: Browse the last 200 reports, or a range, with status and profitability indicators
 - **My Reports**: Track reports you've submitted or disputed
 - **Wrap/Unwrap ETH**: Convenient ETH <-> WETH conversion utility
-- **Multi-Network Support**: Switch between Base, Ethereum, and OP Mainnet
 
 ## Features
 
@@ -112,26 +112,6 @@ This lets you:
 
 ## Contract Addresses
 
-### Base Mainnet
-
-| Contract | Address |
-|----------|---------|
-| Oracle | [`0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752`](https://basescan.org/address/0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752) |
-| Data Provider | [`0x4ccfb84f7EB35ee23c2e91f12e9CE4Ea2927d23C`](https://basescan.org/address/0x4ccfb84f7EB35ee23c2e91f12e9CE4Ea2927d23C) |
-| Batcher | [`0x95420A44715AA90e4CAa76b8A04604B750Da67ed`](https://basescan.org/address/0x95420A44715AA90e4CAa76b8A04604B750Da67ed) |
-| WETH | [`0x4200000000000000000000000000000000000006`](https://basescan.org/address/0x4200000000000000000000000000000000000006) |
-| USDC | [`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`](https://basescan.org/address/0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913) |
-
-### Ethereum Mainnet
-
-| Contract | Address |
-|----------|---------|
-| Oracle | [`0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752`](https://etherscan.io/address/0x7caE6CCBd545Ad08f0Ea1105A978FEBBE2d1a752) |
-| Data Provider | [`0xebc117d55A9303C72E662d80b6b63B2514a68fd3`](https://etherscan.io/address/0xebc117d55A9303C72E662d80b6b63B2514a68fd3) |
-| Batcher | [`0xCcFcBAbE2b43cDAE75493fb6EE66AECDdA859Eff`](https://etherscan.io/address/0xCcFcBAbE2b43cDAE75493fb6EE66AECDdA859Eff) |
-| WETH | [`0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2`](https://etherscan.io/address/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2) |
-| USDC | [`0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48`](https://etherscan.io/address/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48) |
-
 ### OP Mainnet
 
 | Contract | Address |
@@ -139,7 +119,7 @@ This lets you:
 | Oracle | [`0xf3CCE3274c32f1F344Ba48336D5EFF34dc6E145f`](https://optimistic.etherscan.io/address/0xf3CCE3274c32f1F344Ba48336D5EFF34dc6E145f) |
 | Data Provider | [`0x4f9041CCAea126119A1fe62F40A24e7556f1357b`](https://optimistic.etherscan.io/address/0x4f9041CCAea126119A1fe62F40A24e7556f1357b) |
 | Batcher | [`0x6D5dCF8570572e106eF1602ef2152BC363dAeC8b`](https://optimistic.etherscan.io/address/0x6D5dCF8570572e106eF1602ef2152BC363dAeC8b) |
-| Bounty | [`0x94d4a73f7512eB99f75A9eF938bC8CB9Fdf4eDD4`](https://optimistic.etherscan.io/address/0x94d4a73f7512eB99f75A9eF938bC8CB9Fdf4eDD4) |
+| Bounty | [`0xF07c087414c2285f25eAde0FA6e2Dde0bE8Ce98c`](https://optimistic.etherscan.io/address/0xF07c087414c2285f25eAde0FA6e2Dde0bE8Ce98c) |
 | WETH | [`0x4200000000000000000000000000000000000006`](https://optimistic.etherscan.io/address/0x4200000000000000000000000000000000000006) |
 | USDC | [`0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85`](https://optimistic.etherscan.io/address/0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85) |
 | OP | [`0x4200000000000000000000000000000000000042`](https://optimistic.etherscan.io/address/0x4200000000000000000000000000000000000042) |

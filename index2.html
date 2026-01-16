@@ -118,6 +118,23 @@
             color: var(--accent-cyan);
         }
 
+        .docs-link {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-decoration: none;
+            margin-left: 16px;
+            padding: 4px 8px;
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+
+        .docs-link:hover {
+            color: var(--accent-cyan);
+            border-color: var(--accent-cyan);
+        }
+
         /* Network Switcher */
         .network-switcher {
             display: flex;
@@ -1313,6 +1330,440 @@
             opacity: 1;
             visibility: visible;
         }
+
+        .game-param-tip {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            opacity: 0.7;
+        }
+
+        .game-param-tip:hover {
+            opacity: 1;
+        }
+
+        .game-param-tip::after {
+            text-transform: none;
+        }
+
+        /* OP Grant Tab Styles */
+        .opgrant-header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .opgrant-title {
+            font-family: var(--font-display);
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #ff0420 0%, #ff6b7a 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .opgrant-subtitle {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .opgrant-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        @media (max-width: 700px) {
+            .opgrant-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .opgrant-loading {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 60px;
+            color: var(--text-muted);
+        }
+
+        .game-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 24px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .game-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #ff0420, #ff6b7a);
+            opacity: 0.6;
+        }
+
+        .game-card:hover {
+            border-color: rgba(255, 4, 32, 0.4);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(255, 4, 32, 0.15);
+        }
+
+        .game-card.available {
+            border-color: rgba(0, 255, 136, 0.4);
+        }
+
+        .game-card.available::before {
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-cyan));
+        }
+
+        .game-card.has-report {
+            border-color: rgba(168, 85, 247, 0.4);
+        }
+
+        .game-card.has-report::before {
+            background: linear-gradient(90deg, var(--accent-purple), #ec4899);
+        }
+
+        .game-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+
+        .game-id {
+            font-family: var(--font-display);
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .game-id span {
+            color: #ff0420;
+        }
+
+        .game-cooldown-badge {
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .game-cooldown-badge.ready {
+            background: rgba(0, 255, 136, 0.15);
+            color: var(--accent-green);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+        }
+
+        .game-cooldown-badge.waiting {
+            background: rgba(255, 184, 0, 0.15);
+            color: var(--accent-amber);
+            border: 1px solid rgba(255, 184, 0, 0.3);
+        }
+
+        .game-cooldown-badge.active {
+            background: rgba(168, 85, 247, 0.15);
+            color: var(--accent-purple);
+            border: 1px solid rgba(168, 85, 247, 0.3);
+        }
+
+        .game-params {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .game-param {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 12px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .game-param-label {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .game-param-value {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .game-param-value.highlight {
+            color: var(--accent-cyan);
+        }
+
+        .game-param-value.bounty {
+            background: linear-gradient(135deg, #ff0420 0%, #ff6b7a 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .game-countdown {
+            text-align: center;
+            padding: 16px;
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            margin-bottom: 16px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .game-countdown-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .game-countdown-timer {
+            font-family: var(--font-mono);
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--accent-amber);
+        }
+
+        .game-countdown-timer.ready {
+            color: var(--accent-green);
+        }
+
+        .game-bounty-section {
+            background: linear-gradient(135deg, rgba(255, 4, 32, 0.08) 0%, rgba(255, 107, 122, 0.05) 100%);
+            border: 1px solid rgba(255, 4, 32, 0.2);
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 16px;
+        }
+
+        .game-bounty-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .game-bounty-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .game-bounty-token {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: #ff0420;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .game-bounty-amount {
+            font-family: var(--font-mono);
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .game-bounty-range {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 6px;
+        }
+
+        .game-report-link {
+            display: block;
+            padding: 12px;
+            background: rgba(168, 85, 247, 0.1);
+            border: 1px solid rgba(168, 85, 247, 0.3);
+            border-radius: 8px;
+            margin-bottom: 16px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+
+        .game-report-link:hover {
+            background: rgba(168, 85, 247, 0.15);
+            border-color: rgba(168, 85, 247, 0.5);
+        }
+
+        .game-report-link-label {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .game-report-link-id {
+            font-family: var(--font-display);
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--accent-purple);
+        }
+
+        .game-report-info {
+            background: linear-gradient(135deg, rgba(255, 4, 32, 0.12) 0%, rgba(255, 100, 100, 0.08) 100%);
+            border: 1px solid rgba(255, 4, 32, 0.25);
+            border-radius: 10px;
+            padding: 14px 16px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .game-report-id {
+            font-family: var(--font-display);
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.02em;
+        }
+
+        .game-report-status {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 5px 10px;
+            border-radius: 20px;
+            background: rgba(255, 200, 0, 0.15);
+            color: #ffc800;
+            border: 1px solid rgba(255, 200, 0, 0.3);
+        }
+
+        .game-report-status.settled {
+            background: rgba(0, 255, 136, 0.15);
+            color: var(--accent-green);
+            border-color: rgba(0, 255, 136, 0.3);
+        }
+
+        .game-report-status.escalation {
+            background: rgba(168, 85, 247, 0.15);
+            color: var(--accent-purple);
+            border-color: rgba(168, 85, 247, 0.3);
+        }
+
+        .game-escalation-info {
+            background: rgba(168, 85, 247, 0.08);
+            border: 1px solid rgba(168, 85, 247, 0.2);
+            border-radius: 10px;
+            padding: 12px 14px;
+            margin-bottom: 16px;
+        }
+
+        .game-escalation-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+        }
+
+        .game-escalation-row:first-child {
+            padding-top: 0;
+        }
+
+        .game-escalation-row:last-child {
+            padding-bottom: 0;
+        }
+
+        .game-escalation-row + .game-escalation-row {
+            border-top: 1px solid rgba(168, 85, 247, 0.15);
+        }
+
+        .game-escalation-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .game-escalation-value {
+            font-family: var(--font-mono);
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+
+        .game-escalation-value.profit {
+            color: var(--accent-green);
+        }
+
+        .game-escalation-value.countdown {
+            color: var(--accent-cyan);
+        }
+
+        .game-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .game-start-btn {
+            flex: 1;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            font-weight: 700;
+            padding: 14px 20px;
+            background: linear-gradient(135deg, #ff0420 0%, #cc0319 100%);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .game-start-btn:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(255, 4, 32, 0.4);
+        }
+
+        .game-start-btn:disabled {
+            background: var(--bg-secondary);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .game-view-btn {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            font-weight: 600;
+            padding: 14px 20px;
+            background: transparent;
+            border: 1px solid var(--accent-purple);
+            border-radius: 8px;
+            color: var(--accent-purple);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .game-view-btn:hover {
+            background: rgba(168, 85, 247, 0.1);
+        }
     </style>
 </head>
 <body>
@@ -1320,17 +1771,18 @@
         <header class="header">
             <div class="logo">
                 <div class="logo-text">open<span>Oracle</span></div>
+                <a href="https://docs.openoracle.info" target="_blank" class="docs-link">Docs ↗</a>
             </div>
             <div class="network-switcher">
-                <button class="network-btn base active" onclick="switchNetwork('base')" data-network="base">
+                <button class="network-btn base" onclick="switchNetwork('base')" data-network="base" style="display: none;">
                     <span class="network-dot"></span>
                     Base
                 </button>
-                <button class="network-btn ethereum" onclick="switchNetwork('ethereum')" data-network="ethereum">
+                <button class="network-btn ethereum" onclick="switchNetwork('ethereum')" data-network="ethereum" style="display: none;">
                     <span class="network-dot"></span>
                     Ethereum
                 </button>
-                <button class="network-btn optimism" onclick="switchNetwork('optimism')" data-network="optimism">
+                <button class="network-btn optimism active" onclick="switchNetwork('optimism')" data-network="optimism">
                     <span class="network-dot"></span>
                     OP Mainnet
                 </button>
@@ -1345,13 +1797,14 @@
         </header>
 
         <div class="tabs">
-            <button class="tab active" onclick="switchTab('single')">Single Instance</button>
+            <button class="tab active" onclick="switchTab('opgrant')" id="opGrantTab">OP Grant</button>
+            <button class="tab" onclick="switchTab('single')">Single Instance</button>
             <button class="tab" onclick="switchTab('overview')">Overview</button>
             <button class="tab" onclick="switchTab('myreports')">My Reports</button>
             <button class="tab" onclick="switchTab('wrap')">Wrap ETH</button>
         </div>
 
-        <div id="singleTab" class="tab-content active">
+        <div id="singleTab" class="tab-content">
             <div class="card">
                 <div class="search-container">
                     <input type="number" id="reportId" class="search-input" placeholder="Enter Report ID" min="1">
@@ -1449,6 +1902,17 @@
                         <button class="wrap-btn unwrap" onclick="unwrapWeth()">Unwrap</button>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <div id="opgrantTab" class="tab-content active">
+            <div class="opgrant-header">
+                <h2 class="opgrant-title">OP Grant Rewards</h2>
+                <p class="opgrant-subtitle">Earn OP tokens by reporting prices. Start a game and submit the first report to claim the bounty.</p>
+            </div>
+            <div class="opgrant-grid" id="opgrantGrid">
+                <!-- Games will be rendered here by JS -->
+                <div class="opgrant-loading" id="opgrantLoading">Loading games.</div>
             </div>
         </div>
     </div>
