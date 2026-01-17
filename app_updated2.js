@@ -122,10 +122,10 @@ function isWhitelistedPair(token1Address, token2Address) {
 }
 
 // Blue checkmark SVG for whitelisted pairs
-const WHITELIST_CHECK = '<span class="tooltip-icon" data-tip="Whitelisted tokens"><svg style="width: 16px; height: 16px; vertical-align: middle; margin-left: 4px;" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#3b82f6"/><path d="M8 12l3 3 5-6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>';
+const WHITELIST_CHECK = '<span class="tooltip-icon" data-tip="Whitelisted tokens"><svg style="width: 22px; height: 22px; vertical-align: middle;" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#3b82f6"/><path d="M8 12l3 3 5-6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>';
 
 // Red X SVG for non-whitelisted pairs
-const WHITELIST_X = '<span class="tooltip-icon" data-tip="Token(s) not whitelisted"><svg style="width: 16px; height: 16px; vertical-align: middle; margin-left: 4px;" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#ef4444"/><path d="M15 9l-6 6M9 9l6 6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>';
+const WHITELIST_X = '<span class="tooltip-icon" data-tip="Token(s) not whitelisted"><svg style="width: 22px; height: 22px; vertical-align: middle;" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#ef4444"/><path d="M15 9l-6 6M9 9l6 6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>';
 
 // Get whitelist icon based on token pair
 function getWhitelistIcon(token1Address, token2Address) {
@@ -588,6 +588,7 @@ let providers = [];
 let currentGasPrice = null;
 let currentBlockNumber = null; // Cached block number for block-based bounty calculations
 let blockNumberUpdatedAt = null; // Timestamp when block number was last fetched
+let chainTimeOffset = 0; // Offset: chain time - local time (can be negative)
 
 // Get estimated current block number (interpolates based on network block time)
 function getEstimatedBlockNumber() {
@@ -596,6 +597,36 @@ function getEstimatedBlockNumber() {
     const blockTime = getNetwork().blockTime;
     const blocksElapsed = Math.floor(secondsElapsed / blockTime);
     return currentBlockNumber + blocksElapsed;
+}
+
+// Get estimated current block.timestamp (chain time, not local time)
+function getEstimatedBlockTimestamp() {
+    return Math.floor(Date.now() / 1000);
+}
+
+// Format settlement time: >= 1 hour in hours, >= 2 mins in mins, else seconds
+function formatSettlementTime(seconds) {
+    if (seconds >= 3600) {
+        const hours = seconds / 3600;
+        return hours === 1 ? '1 hour' : `${hours} hours`;
+    } else if (seconds >= 120) {
+        const mins = Math.round(seconds / 60);
+        return mins === 1 ? '1 min' : `${mins} mins`;
+    } else {
+        return `${seconds}s`;
+    }
+}
+
+// Debug: call contract to get actual block.timestamp (for comparison)
+async function debugGetChainTimestamp() {
+    try {
+        // Simple contract call that returns block.timestamp
+        const block = await Promise.any(providers.map(p => p.getBlock('latest')));
+        const localTime = Math.floor(Date.now() / 1000);
+        console.log(`DEBUG: block.timestamp=${block.timestamp}, localTime=${localTime}, diff=${block.timestamp - localTime}, ourEstimate=${getEstimatedBlockTimestamp()}`);
+    } catch (e) {
+        console.log('Debug timestamp fetch failed');
+    }
 }
 let ethPrice = null;
 let opPrice = null; // OP token price for bounty calculations
@@ -705,16 +736,18 @@ function getBountyTokenInfo(bountyTokenAddr) {
         return { symbol: 'ETH', decimals: 18 };
     } else if (opAddr && bountyTokenAddr.toLowerCase() === opAddr.toLowerCase()) {
         return { symbol: 'OP', decimals: 18 };
+    } else if (bountyTokenAddr.toLowerCase() === USDC_ADDRESS.toLowerCase()) {
+        return { symbol: 'USDC', decimals: 6 };
     } else {
         return { symbol: 'TOKEN', decimals: 18 }; // Unknown token - will be filtered out
     }
 }
 
-// Check if bounty is valid (ETH or OP only, not claimed/recalled)
+// Check if bounty is valid (ETH, OP, or USDC - not claimed/recalled)
 function isValidBounty(bounty) {
     if (!bounty || bounty.claimed || bounty.recalled || bounty.maxRounds === 0) return false;
     const tokenInfo = getBountyTokenInfo(bounty.bountyToken);
-    return tokenInfo.symbol === 'ETH' || tokenInfo.symbol === 'OP';
+    return tokenInfo.symbol === 'ETH' || tokenInfo.symbol === 'OP' || tokenInfo.symbol === 'USDC';
 }
 
 // Check if bounty is claimable (start time has passed)
@@ -1067,7 +1100,7 @@ function startCountdown(reportTimestamp, settlementTime) {
             return;
         }
 
-        const now = Math.floor(Date.now() / 1000);
+        const now = getEstimatedBlockTimestamp();
         const remaining = settlementTargetTime - now;
         console.log(`Countdown tick: remaining=${remaining}s`);
 
@@ -1085,7 +1118,6 @@ function startCountdown(reportTimestamp, settlementTime) {
             } else {
                 el.textContent = `${remaining}s`;
             }
-            el.className = 'countdown-timer';
         }
     };
 
@@ -1255,7 +1287,8 @@ async function raceGetData(reportId, onFresherData = null) {
                 }
             })
             .catch(err => {
-                console.warn(`RPC ${i} failed:`, err.message);
+                const reason = err.message?.includes('quota') ? 'rate limited' : 'failed';
+                console.log(`RPC ${i} ${reason}`);
             });
     });
 
@@ -1266,26 +1299,34 @@ let gasProviderIndex = 0;
 
 async function updateGasPrice() {
     try {
-        // Rotate through providers to avoid rate limiting
-        const p = providers[gasProviderIndex % providers.length];
-        gasProviderIndex++;
+        // Race all providers for gas price
+        const blockPromises = providers.map(p =>
+            p.getBlock('latest').then(block => {
+                if (!block) throw new Error('No block');
+                return block;
+            })
+        );
 
-        // Get gas price from latest block's baseFeePerGas (more accurate for L2s like Optimism)
-        const block = await p.getBlock('latest');
-        if (block) {
-            // Cache block number for block-based bounty calculations
-            currentBlockNumber = block.number;
-            blockNumberUpdatedAt = Date.now();
+        const block = await Promise.any(blockPromises);
 
-            if (block.baseFeePerGas) {
-                // Use baseFee + small priority fee buffer
-                const priorityFee = ethers.utils.parseUnits('0.001', 'gwei'); // minimal priority on L2
-                currentGasPrice = block.baseFeePerGas.add(priorityFee);
-            } else {
-                // Fallback to getFeeData for chains without EIP-1559
-                const feeData = await p.getFeeData();
-                currentGasPrice = feeData.gasPrice;
-            }
+        // Cache block number for block-based calculations
+        currentBlockNumber = block.number;
+        blockNumberUpdatedAt = Date.now();
+
+        // Calculate chain time offset: how far ahead/behind is chain time vs local time
+        const localTimeSec = Math.floor(Date.now() / 1000);
+        const newOffset = block.timestamp - localTimeSec;
+        console.log(`Chain sync: block.timestamp=${block.timestamp}, localTime=${localTimeSec}, offset=${newOffset}s`);
+        chainTimeOffset = newOffset;
+
+        if (block.baseFeePerGas) {
+            // Use baseFee + small priority fee buffer
+            const priorityFee = ethers.utils.parseUnits('0.001', 'gwei'); // minimal priority on L2
+            currentGasPrice = block.baseFeePerGas.add(priorityFee);
+        } else {
+            // Fallback to getFeeData for chains without EIP-1559
+            const feeData = await providers[0].getFeeData();
+            currentGasPrice = feeData.gasPrice;
         }
 
         document.getElementById('gasPrice').textContent =
@@ -1294,7 +1335,7 @@ async function updateGasPrice() {
         // Update breakeven volatility if report pane is open (gas affects net reward)
         updateBreakevenVolatility();
     } catch (e) {
-        console.error('Gas price error:', e);
+        console.log('Gas price update failed');
     }
 }
 
@@ -1330,8 +1371,8 @@ function connectCoinbaseWs() {
             setTimeout(connectCoinbaseWs, 3000);
         };
 
-        ws.onerror = (e) => {
-            console.error('Coinbase WS error:', e);
+        ws.onerror = () => {
+            console.log('Coinbase WS error, will reconnect...');
         };
     } catch (e) {
         console.error('WS error:', e);
@@ -1339,23 +1380,62 @@ function connectCoinbaseWs() {
     }
 }
 
-// Fetch OP price from CoinGecko (cached, refreshed every 30s)
-async function fetchOpPrice() {
+// OP price sources - use multiple for redundancy
+let opPriceCoingecko = null;
+let opPriceCryptocompare = null;
+
+async function fetchOpPriceCoingecko() {
     try {
         const resp = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=optimism&vs_currencies=usd');
+        if (!resp.ok) {
+            console.log('CoinGecko rate limited');
+            return;
+        }
         const data = await resp.json();
         if (data.optimism && data.optimism.usd) {
-            opPrice = data.optimism.usd;
-            console.log('OP price:', opPrice);
+            opPriceCoingecko = data.optimism.usd;
+            updateOpPrice();
+            console.log('OP price (CoinGecko):', opPriceCoingecko);
         }
     } catch (e) {
-        console.error('Failed to fetch OP price:', e);
+        console.log('CoinGecko unavailable');
+    }
+}
+
+async function fetchOpPriceCryptocompare() {
+    try {
+        const resp = await fetch('https://min-api.cryptocompare.com/data/price?fsym=OP&tsyms=USD');
+        if (!resp.ok) {
+            console.log('CryptoCompare rate limited');
+            return;
+        }
+        const data = await resp.json();
+        if (data.USD) {
+            opPriceCryptocompare = data.USD;
+            updateOpPrice();
+            console.log('OP price (CryptoCompare):', opPriceCryptocompare);
+        }
+    } catch (e) {
+        console.log('CryptoCompare unavailable');
+    }
+}
+
+function updateOpPrice() {
+    // Average available sources, or use whichever is available
+    if (opPriceCoingecko && opPriceCryptocompare) {
+        opPrice = (opPriceCoingecko + opPriceCryptocompare) / 2;
+    } else {
+        opPrice = opPriceCoingecko || opPriceCryptocompare;
     }
 }
 
 function startOpPriceUpdates() {
-    fetchOpPrice(); // Initial fetch
-    setInterval(fetchOpPrice, 30000); // Refresh every 30s
+    // Initial fetch from both sources
+    fetchOpPriceCoingecko();
+    fetchOpPriceCryptocompare();
+    // Stagger updates: CoinGecko at 0s, 30s, 60s... CryptoCompare at 15s, 45s, 75s...
+    setInterval(fetchOpPriceCoingecko, 30000);
+    setTimeout(() => setInterval(fetchOpPriceCryptocompare, 30000), 15000);
 }
 
 // Connect wallet (silent - for auto-reconnect)
@@ -1626,30 +1706,39 @@ function updateBreakevenVolatility() {
     // Reward is in ETH, WETH amount is in ETH - same units, simple ratio
     let rewardEth = parseFloat(ethers.utils.formatUnits(netReporterReward, 18));
 
-    // Add bounty value converted to ETH equivalent
+    // Add bounty value converted to ETH equivalent (only if claimable)
     const bountyData = currentReport.bountyData;
     if (isValidBounty(bountyData)) {
-        const now = Math.floor(Date.now() / 1000);
-        const bountyAmt = calcCurrentBounty(bountyData, now, getEstimatedBlockNumber());
-        const tokenInfo = getBountyTokenInfo(bountyData.bountyToken);
-        const bountyFloat = parseFloat(ethers.utils.formatUnits(bountyAmt, tokenInfo.decimals));
+        const now = getEstimatedBlockTimestamp();
+        const currentBlock = getEstimatedBlockNumber();
+        const claimable = isBountyClaimable(bountyData, now, currentBlock);
 
-        if (tokenInfo.symbol === 'ETH') {
-            rewardEth += bountyFloat;
-        } else if (tokenInfo.symbol === 'OP' && opPrice && ethPrice) {
-            // Convert OP to ETH: (OP amount * OP price in USD) / ETH price in USD
-            const bountyEth = (bountyFloat * opPrice) / ethPrice;
-            rewardEth += bountyEth;
+        // Only include bounty if it's actually claimable
+        if (claimable.claimable) {
+            const bountyAmt = calcCurrentBounty(bountyData, now, currentBlock);
+            const tokenInfo = getBountyTokenInfo(bountyData.bountyToken);
+            const bountyFloat = parseFloat(ethers.utils.formatUnits(bountyAmt, tokenInfo.decimals));
+
+            if (tokenInfo.symbol === 'ETH') {
+                rewardEth += bountyFloat;
+            } else if (tokenInfo.symbol === 'OP' && opPrice && ethPrice) {
+                // Convert OP to ETH: (OP amount * OP price in USD) / ETH price in USD
+                const bountyEth = (bountyFloat * opPrice) / ethPrice;
+                rewardEth += bountyEth;
+            }
         }
     }
 
     // If reward is negative, breakeven volatility doesn't apply
+    const reportWarning = document.getElementById('reportUnprofitableWarning');
     if (rewardEth < 0) {
         breakevenValueEl.textContent = 'N/A';
-        breakevenValueEl.className = 'pane-value';
+        breakevenValueEl.className = 'pane-value negative';
         breakevenRow.style.display = 'flex';
+        if (reportWarning) reportWarning.style.display = 'block';
         return;
     }
+    if (reportWarning) reportWarning.style.display = 'none';
 
     // Get the WETH leg amount
     let wethAmount;
@@ -1835,11 +1924,14 @@ function updateDisputeRequirements() {
     // R* = (b + f) / (1 + f) - symmetric for both directions
     // Loss(R) = Position × [(1+f)R - f], set equal to b × Position
     const breakevenEl = document.getElementById('disputeBreakeven');
+    const disputeWarning = document.getElementById('disputeUnprofitableWarning');
     if (immediatePnL < 0) {
         // Negative PnL means no breakeven - you're already losing
         breakevenEl.textContent = 'N/A';
         breakevenEl.className = 'pane-value negative';
+        if (disputeWarning) disputeWarning.style.display = 'block';
     } else {
+        if (disputeWarning) disputeWarning.style.display = 'none';
         const feeRate = report.feePercentage / 10000000; // swap fee rate
         const b = amount2Value > 0 ? immediatePnL / amount2Value : 0;
         const breakeven = (b + feeRate) / (1 + feeRate) * 100;
@@ -2782,11 +2874,12 @@ function renderReport(report, token1Info, token2Info, bountyData = null) {
     }
 
     let statusBadge = '';
+    let metricsHtml = '';
     if (isSettled) {
         statusBadge = '<span class="settled-badge">Settled</span>';
     } else if (hasInitialReport) {
         // Calculate initial time for display
-        const now = Math.floor(Date.now() / 1000);
+        const now = getEstimatedBlockTimestamp();
         const reportTs = typeof report.reportTimestamp === 'number' ? report.reportTimestamp : report.reportTimestamp.toNumber();
         const settlementTimeSecs = typeof report.settlementTime === 'number' ? report.settlementTime : report.settlementTime.toNumber();
         const settleTs = reportTs + settlementTimeSecs;
@@ -2809,28 +2902,42 @@ function renderReport(report, token1Info, token2Info, bountyData = null) {
                         <span class="metric-value ${rewardClass}">${rewardSign}$${Math.abs(netRewardUsd).toFixed(4)}</span>
                     </div>`;
             }
-            statusBadge = `
-                <div class="status-card">
-                    <div class="badge-section">
-                        <span class="settled-badge">Ready to Settle</span>
-                        <button class="report-action-btn" onclick="settleReport(${report.reportId}, this)">Settle</button>
-                    </div>
-                    <div class="metrics-section">${netRewardHtml}</div>
-                </div>`;
+            statusBadge = `<span class="settled-badge">Ready to Settle</span><button class="report-action-btn" onclick="settleReport(${report.reportId}, this)">Settle</button>`;
+            metricsHtml = `
+                <div class="section-title">Economics</div>
+                <div class="metrics-section">${netRewardHtml}</div>`;
         } else {
             // Not settleable yet - show countdown and dispute button
             const timeStr = remaining >= 60 ? `${Math.floor(remaining / 60)}m ${remaining % 60}s` : `${remaining}s`;
             const canDispute = report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT && isSettlementTimeValid(report);
             const disputeBtnHtml = canDispute ? `<button class="dispute-btn" onclick="toggleDisputePane()">Dispute</button>` : '';
-            statusBadge = `
-                <div class="status-card">
-                    <div class="badge-section">
-                        <span class="pending-badge">Pending Settlement</span>
-                        <div class="countdown-display">
-                            <span class="countdown-label">Settles in</span>
-                            <span id="settlementCountdown" class="countdown-timer">${timeStr}</span>
-                        </div>
-                        ${disputeBtnHtml}
+            statusBadge = `<span class="pending-badge">Pending Settlement</span>${disputeBtnHtml}`;
+
+            // Calculate dispute economics
+            const disputeInfo = calculateDisputeInfo(report, token1Info, token2Info);
+            const liqStr = formatTokenAmount(disputeInfo.newAmount1, token1Info.decimals, token1Info.symbol);
+
+            let profitHtml = '';
+            if (disputeInfo.usdPnLAvailable) {
+                const profitClass = disputeInfo.netPnLUSD >= 0 ? 'positive' : 'negative';
+                const profitSign = disputeInfo.netPnLUSD >= 0 ? '+' : '';
+                profitHtml = `
+                    <div class="status-metric">
+                        <span class="metric-label">Profit From Swap</span>
+                        <span id="singleImmediateProfitDisplay" class="metric-value ${profitClass}">${profitSign}$${Math.abs(disputeInfo.netPnLUSD).toFixed(2)}</span>
+                    </div>`;
+            }
+
+            metricsHtml = `
+                <div class="section-title">Economics</div>
+                <div class="metrics-section">${profitHtml}
+                    <div class="status-metric">
+                        <span class="metric-label">Settles In</span>
+                        <span id="settlementCountdown" class="metric-value">${timeStr}</span>
+                    </div>
+                    <div class="status-metric">
+                        <span class="metric-label">Liquidity</span>
+                        <span class="metric-value neutral">${liqStr}</span>
                     </div>
                 </div>`;
         }
@@ -2844,7 +2951,7 @@ function renderReport(report, token1Info, token2Info, bountyData = null) {
         let bountyHtml = '';
         const hasBounty = isValidBounty(bountyData);
         if (hasBounty) {
-            const now = Math.floor(Date.now() / 1000);
+            const now = getEstimatedBlockTimestamp();
             const currentBlock = getEstimatedBlockNumber();
             const bountyAmt = calcCurrentBounty(bountyData, now, currentBlock);
             const tokenInfo = getBountyTokenInfo(bountyData.bountyToken);
@@ -2890,7 +2997,7 @@ function renderReport(report, token1Info, token2Info, bountyData = null) {
                         </span>
                     </div>
                     <div id="bountyStartingAt" class="status-metric">
-                        <span class="metric-label">Starting At</span>
+                        <span class="metric-label">Bounty Starting At</span>
                         <span class="metric-value neutral">${formatBountyAmount(bountyData.bountyStartAmt, tokenInfo)}</span>
                     </div>`;
             }
@@ -2903,8 +3010,9 @@ function renderReport(report, token1Info, token2Info, bountyData = null) {
         }
 
         const rewardClass = rewardUsd >= 0 ? 'positive' : 'negative';
-        const rewardSign = rewardUsd >= 0 ? '+' : '';
-        const rewardUsdStr = ethPrice ? `${rewardSign}$${Math.abs(rewardUsd).toFixed(4)}` : '??';
+        const rewardUsdStr = ethPrice
+            ? (rewardUsd >= 0 ? `+$${rewardUsd.toFixed(4)}` : `-$${Math.abs(rewardUsd).toFixed(4)}`)
+            : '??';
 
         // Don't show Report button if callbackGasLimit is too high
         const canReport = report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT && isSettlementTimeValid(report);
@@ -2918,21 +3026,17 @@ function renderReport(report, token1Info, token2Info, bountyData = null) {
             reportBtnHtml = `<span style="font-size: 0.7rem; color: #ef4444; font-family: var(--font-mono);">${reason}</span>`;
         }
 
-        statusBadge = `
-            <div class="status-card">
-                <div class="badge-section">
-                    <span class="no-report-badge">Awaiting Report</span>
-                    ${reportBtnHtml}
-                </div>
-                <div class="metrics-section">
-                    <div class="status-metric">
-                        <span class="metric-label">Net Reward</span>
-                        <span id="singleNetRewardDisplay" class="metric-value ${rewardClass}">${rewardUsdStr}</span>
-                    </div>${bountyHtml}
-                    <div class="status-metric">
-                        <span class="metric-label">Liquidity</span>
-                        <span class="metric-value neutral">${liqStr}</span>
-                    </div>
+        statusBadge = `<span class="no-report-badge">Awaiting Report</span>${reportBtnHtml}`;
+        metricsHtml = `
+            <div class="section-title">Economics</div>
+            <div class="metrics-section">
+                <div class="status-metric">
+                    <span class="metric-label">Net Reward</span>
+                    <span id="singleNetRewardDisplay" class="metric-value ${rewardClass}">${rewardUsdStr}</span>
+                </div>${bountyHtml}
+                <div class="status-metric">
+                    <span class="metric-label">Liquidity</span>
+                    <span class="metric-value neutral">${liqStr}</span>
                 </div>
             </div>`;
     }
@@ -2942,13 +3046,13 @@ function renderReport(report, token1Info, token2Info, bountyData = null) {
     if (!hasInitialReport && report.callbackGasLimit <= MAX_CALLBACK_GAS_REPORT && isSettlementTimeValid(report)) {
         const settlementTimeVal = typeof report.settlementTime === 'number' ? report.settlementTime : report.settlementTime.toNumber();
         const settlementStr = report.timeType
-            ? (settlementTimeVal >= 60 ? `${(settlementTimeVal / 60).toFixed(1)} min` : `${settlementTimeVal} sec`)
+            ? formatSettlementTime(settlementTimeVal)
             : `${settlementTimeVal} blocks`;
 
         // Check if bounty is claimable for routing note
         let bountyRouteNote = '';
         if (isValidBounty(bountyData)) {
-            const now = Math.floor(Date.now() / 1000);
+            const now = getEstimatedBlockTimestamp();
             const currentBlock = getEstimatedBlockNumber();
             const claimableInfo = isBountyClaimable(bountyData, now, currentBlock);
 
@@ -2960,15 +3064,19 @@ function renderReport(report, token1Info, token2Info, bountyData = null) {
             }
         }
 
+        const token1Amt = formatTokenAmount(report.exactToken1Report, token1Info.decimals, token1Info.symbol);
+        const isWhitelisted = isWhitelistedPair(report.token1, report.token2);
+        const whitelistWarning = isWhitelisted ? '' : `<div class="pane-note error">WARNING: token(s) not whitelisted - proceed with caution</div>`;
+
         reportPaneHtml = `
         <div id="reportPane" class="report-pane" style="display: none;">
-            <div class="pane-header">Submit Initial Report</div>${bountyRouteNote}
+            <div class="pane-header">Submit Initial Report</div>${bountyRouteNote}${whitelistWarning}
             <div class="pane-row">
                 <div class="pane-label">${token1Info.symbol} Amount (fixed)</div>
-                <div class="pane-value">${formatTokenAmount(report.exactToken1Report, token1Info.decimals, token1Info.symbol)}</div>
+                <div class="pane-value">${token1Amt}</div>
             </div>
             <div class="pane-row">
-                <div class="pane-label">${token2Info.symbol} Amount (${formatTokenAmount(report.exactToken1Report, token1Info.decimals, token1Info.symbol)} worth of ${token2Info.symbol}) <span class="tooltip" data-tip="If you choose the wrong ${token2Info.symbol} amount, you stand to lose up to the absolute difference in value between ${token1Info.symbol} Amount and ${token2Info.symbol} Amount.">(?)</span></div>
+                <div class="pane-label">${token2Info.symbol} Amount (${token1Amt} worth of ${token2Info.symbol}) <span class="tooltip" data-tip="If you choose the wrong ${token2Info.symbol} amount, you stand to lose up to the absolute difference in value between ${token1Info.symbol} Amount and ${token2Info.symbol} Amount.">(?)</span></div>
                 <div class="pane-input-group">
                     <input type="text" id="amount2Input" class="pane-input" placeholder="Enter ${token2Info.symbol} amount" oninput="updateBreakevenVolatility()">
                     <button class="auto-btn" onclick="autoFillAmount2()">Auto</button>
@@ -2981,6 +3089,8 @@ function renderReport(report, token1Info, token2Info, bountyData = null) {
                 </div>
                 <div class="pane-value" id="breakevenValue">--</div>
             </div>
+            <div id="reportUnprofitableWarning" class="pane-note error" style="display: none;">WARNING: report immediately unprofitable</div>
+            <div class="pane-reminder">Please double check your ${token2Info.symbol} amount equals ~${token1Amt} in value or you will lose money</div>
             <div class="pane-actions">
                 <button class="submit-btn" onclick="submitInitialReport()">Submit Report</button>
                 <button class="cancel-btn" onclick="toggleReportPane()">Cancel</button>
@@ -2997,18 +3107,22 @@ function renderReport(report, token1Info, token2Info, bountyData = null) {
         // Settlement time string for tooltip
         const settlementTimeVal = typeof report.settlementTime === 'number' ? report.settlementTime : report.settlementTime.toNumber();
         const settlementStr = report.timeType
-            ? (settlementTimeVal >= 60 ? `${(settlementTimeVal / 60).toFixed(1)} min` : `${settlementTimeVal} sec`)
+            ? formatSettlementTime(settlementTimeVal)
             : `${settlementTimeVal} blocks`;
+
+        const disputeToken1Amt = formatTokenAmount(tempDisputeInfo.newAmount1, token1Info.decimals, token1Info.symbol);
+        const disputeIsWhitelisted = isWhitelistedPair(report.token1, report.token2);
+        const disputeWhitelistWarning = disputeIsWhitelisted ? '' : `<div class="pane-note error">WARNING: token(s) not whitelisted - proceed with caution</div>`;
 
         disputePaneHtml = `
         <div id="disputePane" class="report-pane dispute-pane" style="display: none;">
-            <div class="pane-header" style="color: var(--accent-red);">Submit Dispute</div>
+            <div class="pane-header" style="color: var(--accent-red);">Submit Dispute</div>${disputeWhitelistWarning}
             <div class="pane-row">
                 <div class="pane-label">New ${token1Info.symbol} Amount (fixed - escalated)</div>
-                <div class="pane-value">${formatTokenAmount(tempDisputeInfo.newAmount1, token1Info.decimals, token1Info.symbol)}</div>
+                <div class="pane-value">${disputeToken1Amt}</div>
             </div>
             <div class="pane-row">
-                <div class="pane-label">New ${token2Info.symbol} Amount (${formatTokenAmount(tempDisputeInfo.newAmount1, token1Info.decimals, token1Info.symbol)} worth of ${token2Info.symbol})</div>
+                <div class="pane-label">New ${token2Info.symbol} Amount (${disputeToken1Amt} worth of ${token2Info.symbol})</div>
                 <div class="pane-input-group">
                     <input type="text" id="disputeAmount2Input" class="pane-input" placeholder="Enter ${token2Info.symbol} amount" oninput="updateDisputeRequirements()">
                     <button class="auto-btn" onclick="autoFillDisputeAmount2()">Auto</button>
@@ -3026,6 +3140,7 @@ function renderReport(report, token1Info, token2Info, bountyData = null) {
                     </div>
                     <div class="pane-value" id="disputeBreakeven">--</div>
                 </div>
+                <div id="disputeUnprofitableWarning" class="pane-note error" style="display: none;">WARNING: dispute immediately unprofitable</div>
                 <div class="pane-row">
                     <div class="pane-label">You Transfer In (swapping <span id="recommendedSwap">--</span>)</div>
                     <div class="pane-value" id="disputeTransferIn">--</div>
@@ -3035,6 +3150,7 @@ function renderReport(report, token1Info, token2Info, bountyData = null) {
                     <div class="pane-value" id="disputePositionWorth">--</div>
                 </div>
             </div>
+            <div class="pane-reminder">Please double check your ${token2Info.symbol} amount equals ~${disputeToken1Amt} in value or you will lose money</div>
             <div class="pane-actions">
                 <button class="submit-btn" style="background: var(--accent-red);" onclick="submitDispute()">Submit Dispute</button>
                 <button class="cancel-btn" onclick="toggleDisputePane()">Cancel</button>
@@ -3048,8 +3164,8 @@ function renderReport(report, token1Info, token2Info, bountyData = null) {
 
     const whitelistIcon = getWhitelistIcon(report.token1, report.token2);
     let html = `${reportPaneHtml}${disputePaneHtml}<div class="result-card">
-        <h2 style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">Report #${report.reportId}${whitelistIcon} ${statusBadge}</h2>
-
+        <h2 style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px;"><span>Report #${report.reportId}</span>${whitelistIcon}${statusBadge}</h2>
+        ${metricsHtml}
         <div class="section-title">Token Pair</div>
         <div class="info-grid">
             <div class="info-item">
@@ -3494,7 +3610,8 @@ async function raceGetDataRange(startId, endId) {
                 return { result, elapsed };
             })
             .catch(err => {
-                console.warn(`RPC ${i} (range) failed:`, err.message);
+                const reason = err.message?.includes('quota') ? 'rate limited' : 'failed';
+                console.log(`RPC ${i} (range) ${reason}`);
                 throw err;
             });
     });
@@ -3587,7 +3704,7 @@ async function loadOverview(autoDetect = false) {
         let skipped = 0;
 
         const grid = document.getElementById('reportsGrid');
-        const now = Math.floor(Date.now() / 1000);
+        const now = getEstimatedBlockTimestamp();
         let html = '';
 
         for (const report of reports) {
@@ -3604,19 +3721,25 @@ async function loadOverview(autoDetect = false) {
 
             // Settlement time display
             const settlementStr = report.timeType ?
-                `${report.settlementTime}s` :
+                formatSettlementTime(report.settlementTime) :
                 `${report.settlementTime} blks`;
 
             // Determine status and calculate appropriate value
             let statusClass, statusText, valueLabel, valueUsd, valueClass;
             let bountyStr = ''; // Bounty display string (only for awaiting reports)
+            let liqStr = ''; // Liquidity display string (only for awaiting reports)
 
             if (!hasInitialReport) {
                 // Awaiting initial report - show reporter reward
                 statusClass = 'awaiting';
                 statusText = 'Needs Initial Report';
-                valueLabel = 'Reward';
+                valueLabel = 'Net Reward';
                 awaiting++;
+
+                // Get liquidity info (token1) - supports all tokens
+                const token1Info = await getTokenInfo(report.token1);
+                const liqFloat = parseFloat(ethers.utils.formatUnits(report.exactToken1Report, token1Info.decimals));
+                liqStr = (liqFloat >= 0.01 ? liqFloat.toFixed(2) : liqFloat.toFixed(6)) + ' ' + token1Info.symbol;
 
                 // Check for bounty (ETH/OP only)
                 const bounty = bountyData[report.reportId];
@@ -3642,11 +3765,11 @@ async function loadOverview(autoDetect = false) {
                 // Store base reward (without bounty) for live updates
                 const baseRewardUsd = valueUsd;
 
-                // Add bounty to reward if available (ETH/OP only)
+                // Add bounty to reward if available and claimable (ETH/OP only)
                 if (hasBounty) {
-                    const bountyAmt = calcCurrentBounty(bounty, now, getEstimatedBlockNumber());
+                    const currentBlock = getEstimatedBlockNumber();
+                    const claimable = isBountyClaimable(bounty, now, currentBlock);
                     const tokenInfo = getBountyTokenInfo(bounty.bountyToken);
-                    bountyStr = formatBountyAmount(bountyAmt, tokenInfo);
 
                     // Store bounty data for live updates (only ETH/OP)
                     cachedBounties[report.reportId] = {
@@ -3655,10 +3778,22 @@ async function loadOverview(autoDetect = false) {
                         baseRewardUsd: baseRewardUsd
                     };
 
-                    // Add bounty value to USD total if it's ETH
-                    if (tokenInfo.symbol === 'ETH' && ethPrice) {
-                        const bountyEth = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
-                        valueUsd += bountyEth * ethPrice;
+                    // Only include bounty in reward if claimable
+                    if (claimable.claimable) {
+                        const bountyAmt = calcCurrentBounty(bounty, now, currentBlock);
+                        bountyStr = formatBountyAmount(bountyAmt, tokenInfo);
+
+                        // Add bounty value to USD total
+                        if (tokenInfo.symbol === 'ETH' && ethPrice) {
+                            const bountyEth = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
+                            valueUsd += bountyEth * ethPrice;
+                        } else if (tokenInfo.symbol === 'OP' && opPrice) {
+                            const bountyOp = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
+                            valueUsd += bountyOp * opPrice;
+                        } else if (tokenInfo.symbol === 'USDC') {
+                            const bountyUsdc = parseFloat(ethers.utils.formatUnits(bountyAmt, 6));
+                            valueUsd += bountyUsdc; // USDC is 1:1 with USD
+                        }
                     }
                 }
 
@@ -3668,7 +3803,7 @@ async function loadOverview(autoDetect = false) {
                 const reportTs = typeof report.reportTimestamp === 'number' ? report.reportTimestamp : report.reportTimestamp.toNumber();
                 const settlementTimeSecs = typeof report.settlementTime === 'number' ? report.settlementTime : report.settlementTime.toNumber();
                 const settleTs = reportTs + settlementTimeSecs;
-                const now = Math.floor(Date.now() / 1000);
+                const now = getEstimatedBlockTimestamp();
                 const isSettleable = now >= settleTs;
 
                 if (isSettleable) {
@@ -3762,6 +3897,13 @@ async function loadOverview(autoDetect = false) {
                     <span class="report-box-value bounty" data-report-id="${report.reportId}">+${bountyStr}</span>
                 </div>` : '';
 
+            // Liquidity row (only for awaiting reports)
+            const liqRow = statusClass === 'awaiting' ? `
+                <div class="report-box-row">
+                    <span class="report-box-label">Liquidity</span>
+                    <span class="report-box-value">${liqStr}</span>
+                </div>` : '';
+
             // Add data attribute for live bounty updates
             const rewardDataAttr = bountyStr ? `data-report-id="${report.reportId}"` : '';
 
@@ -3774,7 +3916,7 @@ async function loadOverview(autoDetect = false) {
                 <div class="report-box-row">
                     <span class="report-box-label">${valueLabel}</span>
                     <span class="report-box-value ${valueClass}" ${rewardDataAttr}>${valueStr}</span>
-                </div>${bountyRow}${settleRow}
+                </div>${bountyRow}${liqRow}${settleRow}
             </div>`;
         }
 
@@ -3818,10 +3960,17 @@ function updateSingleBountyDisplay() {
     if (!currentReport || !isValidBounty(currentReport.bountyData)) return;
 
     const bounty = currentReport.bountyData;
-    const now = Math.floor(Date.now() / 1000);
+    const now = getEstimatedBlockTimestamp();
     const currentBlock = getEstimatedBlockNumber();
     const tokenInfo = getBountyTokenInfo(bounty.bountyToken);
     const claimableInfo = isBountyClaimable(bounty, now, currentBlock);
+
+    // Debug: log bounty calculation details
+    const start = bounty.start?.toNumber ? bounty.start.toNumber() : Number(bounty.start);
+    const roundLen = bounty.roundLength?.toNumber ? bounty.roundLength.toNumber() : Number(bounty.roundLength);
+    const elapsed = now - start;
+    const rounds = Math.floor(elapsed / roundLen);
+    console.log(`Bounty debug: now=${now}, start=${start}, elapsed=${elapsed}s, rounds=${rounds}, offset=${chainTimeOffset}`);
 
     // Update claimability on currentReport
     currentReport.bountyClaimable = claimableInfo;
@@ -3915,30 +4064,54 @@ function stopBreakevenUpdateTimer() {
 }
 
 function updateBountyDisplays() {
-    const now = Math.floor(Date.now() / 1000);
+    const now = getEstimatedBlockTimestamp();
+    const currentBlock = getEstimatedBlockNumber();
 
     for (const [reportId, bounty] of Object.entries(cachedBounties)) {
         if (bounty.claimed || bounty.recalled) continue;
 
-        const bountyAmt = calcCurrentBounty(bounty, now, getEstimatedBlockNumber());
+        const claimable = isBountyClaimable(bounty, now, currentBlock);
         const tokenInfo = bounty.tokenInfo;
-        const bountyStr = formatBountyAmount(bountyAmt, tokenInfo);
 
         // Update bounty display
         const bountyEl = document.querySelector(`.report-box-value.bounty[data-report-id="${reportId}"]`);
-        if (bountyEl) {
-            bountyEl.textContent = `+${bountyStr}`;
-        }
 
-        // Update reward display (base + bounty for ETH)
+        // Update reward display (base + bounty if claimable)
         const rewardEl = document.querySelector(`.report-box-value[data-report-id="${reportId}"]:not(.bounty)`);
-        if (rewardEl && tokenInfo.symbol === 'ETH' && ethPrice) {
-            const bountyEth = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
-            const bountyUsd = bountyEth * ethPrice;
-            const totalUsd = bounty.baseRewardUsd + bountyUsd;
-            const valueStr = Math.abs(totalUsd) >= 0.01 ? `$${totalUsd.toFixed(2)}` : `$${totalUsd.toFixed(4)}`;
-            rewardEl.textContent = valueStr;
-            rewardEl.className = `report-box-value ${totalUsd >= 0 ? 'profit' : 'loss'}`;
+
+        if (claimable.claimable) {
+            const bountyAmt = calcCurrentBounty(bounty, now, currentBlock);
+            const bountyStr = formatBountyAmount(bountyAmt, tokenInfo);
+
+            if (bountyEl) {
+                bountyEl.textContent = `+${bountyStr}`;
+            }
+
+            // Update reward with bounty value
+            if (rewardEl) {
+                let bountyUsd = 0;
+                if (tokenInfo.symbol === 'ETH' && ethPrice) {
+                    const bountyEth = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
+                    bountyUsd = bountyEth * ethPrice;
+                } else if (tokenInfo.symbol === 'OP' && opPrice) {
+                    const bountyOp = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
+                    bountyUsd = bountyOp * opPrice;
+                } else if (tokenInfo.symbol === 'USDC') {
+                    bountyUsd = parseFloat(ethers.utils.formatUnits(bountyAmt, 6));
+                }
+                const totalUsd = bounty.baseRewardUsd + bountyUsd;
+                const valueStr = Math.abs(totalUsd) >= 0.01 ? `$${totalUsd.toFixed(2)}` : `$${totalUsd.toFixed(4)}`;
+                rewardEl.textContent = valueStr;
+                rewardEl.className = `report-box-value ${totalUsd >= 0 ? 'profit' : 'loss'}`;
+            }
+        } else {
+            // Bounty not yet claimable - show base reward only
+            if (rewardEl) {
+                const baseUsd = bounty.baseRewardUsd;
+                const valueStr = Math.abs(baseUsd) >= 0.01 ? `$${baseUsd.toFixed(2)}` : `$${baseUsd.toFixed(4)}`;
+                rewardEl.textContent = valueStr;
+                rewardEl.className = `report-box-value ${baseUsd >= 0 ? 'profit' : 'loss'}`;
+            }
         }
     }
 }
@@ -4081,7 +4254,7 @@ async function loadMyReports() {
             let canSettle = false;
             let settlementStr = '';
             if (hasInitialReport) {
-                const now = Math.floor(Date.now() / 1000);
+                const now = getEstimatedBlockTimestamp();
                 const reportTimestamp = typeof report.reportTimestamp === 'number' ? report.reportTimestamp : report.reportTimestamp.toNumber();
                 const settlementTime = typeof report.settlementTime === 'number' ? report.settlementTime : report.settlementTime.toNumber();
 
@@ -4143,12 +4316,12 @@ async function loadMyReports() {
                 row1Label = 'Time Left';
                 row1Value = settlementStr;
                 row2Label = 'Settlement';
-                row2Value = report.timeType ? `${report.settlementTime}s window` : `${report.settlementTime} blocks`;
+                row2Value = report.timeType ? `${formatSettlementTime(report.settlementTime)} window` : `${report.settlementTime} blocks`;
             } else {
                 row1Label = 'Status';
                 row1Value = 'Awaiting initial report';
                 row2Label = 'Settlement';
-                row2Value = report.timeType ? `${report.settlementTime}s window` : `${report.settlementTime} blocks`;
+                row2Value = report.timeType ? `${formatSettlementTime(report.settlementTime)} window` : `${report.settlementTime} blocks`;
             }
 
             // Add data-settlement-target for live countdown updates
@@ -4209,7 +4382,7 @@ function stopMyReportsTimer() {
 // Update all countdown timers in My Reports
 function updateMyReportsCountdowns() {
     const elements = document.querySelectorAll('[data-settlement-target]');
-    const now = Math.floor(Date.now() / 1000);
+    const now = getEstimatedBlockTimestamp();
 
     elements.forEach(el => {
         const target = parseInt(el.getAttribute('data-settlement-target'));
@@ -4361,7 +4534,7 @@ let activeGameReports = {};
 
 // Game metadata
 const GAME_NAMES = ['Quick Game', 'Standard Game', 'Medium Game', 'Big Game'];
-const GAME_SETTLEMENT = ['10s', '4 blocks', '10 min', '4 hour'];
+const GAME_SETTLEMENT = ['10s', '4 blocks', '10 mins', '4 hours'];
 
 // Calculate commitment in USD (2x the exactToken1Report)
 function getCommitmentUsd(game) {
@@ -4436,14 +4609,15 @@ async function loadOpGrantGames() {
 
     opGrantLoading = true;
     try {
-        // Race all providers - first successful response wins
+        // Race top 3 providers to reduce rate limit spam (each makes ~24 calls)
         const rpcEndpoints = getRpcEndpoints();
+        const limitedProviders = providers.slice(0, 3);
 
         const racePromise = new Promise((resolve, reject) => {
             let resolved = false;
             let failCount = 0;
 
-            providers.forEach((provider, idx) => {
+            limitedProviders.forEach((provider, idx) => {
                 const faucetContract = new ethers.Contract(OP_GRANT_FAUCET_ADDRESS, OP_GRANT_FAUCET_ABI, provider);
                 const startTime = performance.now();
 
@@ -4479,9 +4653,10 @@ async function loadOpGrantGames() {
                     })
                     .catch(err => {
                         const rpcName = rpcEndpoints[idx]?.split('//')[1]?.split('/')[0] || `RPC ${idx}`;
-                        console.warn(`OP Grant games: ${rpcName} failed:`, err.message);
+                        const reason = err.message?.includes('quota') ? 'rate limited' : 'failed';
+                        console.log(`OP Grant games: ${rpcName} ${reason}`);
                         failCount++;
-                        if (failCount === providers.length && !resolved) {
+                        if (failCount === limitedProviders.length && !resolved) {
                             reject(new Error('All RPCs failed'));
                         }
                     });
@@ -4498,7 +4673,7 @@ async function loadOpGrantGames() {
         const { gameData: allGameData, bountyParams: allBountyParams } = await racePromise;
 
         const games = [];
-        const now = Math.floor(Date.now() / 1000);
+        const now = getEstimatedBlockTimestamp();
 
         // Build games array
         for (let i = 0; i < 4; i++) {
@@ -4533,12 +4708,12 @@ async function loadOpGrantGames() {
         const activeReportIds = games.filter(g => g.activeReportId).map(g => g.activeReportId);
 
         if (activeReportIds.length > 0) {
-            // Race all providers for report data
+            // Race limited providers for report data
             const reportRace = new Promise((resolve, reject) => {
                 let resolved = false;
                 let failCount = 0;
 
-                providers.forEach((provider, idx) => {
+                limitedProviders.forEach((provider, idx) => {
                     const dataProvider = new ethers.Contract(get_DATA_PROVIDER_ADDRESS(), DATA_PROVIDER_ABI, provider);
                     Promise.all(activeReportIds.map(rid => dataProvider['getData(uint256)'](rid)))
                         .then(reportArrays => {
@@ -4551,9 +4726,9 @@ async function loadOpGrantGames() {
                         })
                         .catch(err => {
                             const rpcName = rpcEndpoints[idx]?.split('//')[1]?.split('/')[0] || `RPC ${idx}`;
-                            console.warn(`OP Grant reports: ${rpcName} failed:`, err.message);
+                            console.log(`OP Grant reports: ${rpcName} failed`);
                             failCount++;
-                            if (failCount === providers.length && !resolved) {
+                            if (failCount === limitedProviders.length && !resolved) {
                                 reject(new Error('All RPCs failed for reports'));
                             }
                         });
@@ -4582,7 +4757,7 @@ async function loadOpGrantGames() {
                 }
             }
 
-            // Race all providers for bounty data
+            // Race limited providers for bounty data
             const stillActiveIds = games.filter(g => g.activeReportId).map(g => g.activeReportId);
             if (bountyAddr && stillActiveIds.length > 0) {
                 try {
@@ -4590,7 +4765,7 @@ async function loadOpGrantGames() {
                         let resolved = false;
                         let failCount = 0;
 
-                        providers.forEach((provider, idx) => {
+                        limitedProviders.forEach((provider, idx) => {
                             const bountyContract = new ethers.Contract(bountyAddr, BOUNTY_ABI, provider);
                             bountyContract.getBounties(stillActiveIds)
                                 .then(bounties => {
@@ -4603,9 +4778,9 @@ async function loadOpGrantGames() {
                                 })
                                 .catch(err => {
                                     const rpcName = rpcEndpoints[idx]?.split('//')[1]?.split('/')[0] || `RPC ${idx}`;
-                                    console.warn(`OP Grant bounties: ${rpcName} failed:`, err.message);
+                                    console.log(`OP Grant bounties: ${rpcName} failed`);
                                     failCount++;
-                                    if (failCount === providers.length && !resolved) {
+                                    if (failCount === limitedProviders.length && !resolved) {
                                         reject(new Error('All RPCs failed for bounties'));
                                     }
                                 });
@@ -4694,7 +4869,7 @@ function renderOpGrantGames() {
     const grid = document.getElementById('opgrantGrid');
     if (!grid || opGrantGames.length === 0) return;
 
-    const now = Math.floor(Date.now() / 1000);
+    const now = getEstimatedBlockTimestamp();
 
     grid.innerHTML = opGrantGames.map(game => {
         const timeRemaining = game.canStart ? 0 : Math.max(0, game.nextAvailable - now);
@@ -4793,7 +4968,7 @@ function renderOpGrantGames() {
                     </div>
                 `;
             } else if (game.activeBounty) {
-                // Awaiting report - show bounty info
+                // Awaiting report - show bounty info and commitment
                 const bountyAmt = calcCurrentBounty(game.activeBounty, now, 0);
                 const bountyOp = parseFloat(ethers.utils.formatEther(bountyAmt));
                 const roundLen = game.activeBounty.roundLength ? game.activeBounty.roundLength.toNumber() : 6;
@@ -4803,6 +4978,16 @@ function renderOpGrantGames() {
                 const currentRound = Math.min(Math.floor(elapsed / roundLen), maxRounds);
 
                 liveInfoHtml = `
+                    <div class="game-params" style="margin-bottom: 12px;">
+                        <div class="game-param">
+                            <div class="game-param-label">Commitment</div>
+                            <div class="game-param-value">${getCommitmentUsd(game)}</div>
+                        </div>
+                        <div class="game-param">
+                            <div class="game-param-label">Settlement</div>
+                            <div class="game-param-value">${GAME_SETTLEMENT[game.id]}</div>
+                        </div>
+                    </div>
                     <div class="game-bounty-section live">
                         <div class="game-bounty-header">
                             <span class="game-bounty-label">Current Bounty</span>
@@ -4852,7 +5037,7 @@ function renderOpGrantGames() {
 
                 <div class="game-params">
                     <div class="game-param" style="position: relative;">
-                        <span class="tooltip-icon game-param-tip" data-tip="Half in each token">(?)</span>
+                        <span class="tooltip-icon game-param-tip" data-tip="Half in each token. Commitment not required to start game.">(?)</span>
                         <div class="game-param-label">Commitment</div>
                         <div class="game-param-value">${getCommitmentUsd(game)}</div>
                     </div>
@@ -4979,7 +5164,7 @@ async function startOpGrantGame(gameId, btn = null) {
 function updateOpGrantCountdowns() {
     if (!isOpGrantAvailable() || opGrantGames.length === 0) return;
 
-    const now = Math.floor(Date.now() / 1000);
+    const now = getEstimatedBlockTimestamp();
     const estBlock = getEstimatedBlockNumber();
 
     opGrantGames.forEach(game => {
