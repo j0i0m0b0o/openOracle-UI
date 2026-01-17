@@ -132,6 +132,45 @@ function getWhitelistIcon(token1Address, token2Address) {
     return isWhitelistedPair(token1Address, token2Address) ? WHITELIST_CHECK : WHITELIST_X;
 }
 
+// Global tracking of buttons in loading state (persists across re-renders)
+let loadingButtons = {};
+
+// Button loading state helper
+function setButtonLoading(button, loading, originalText = null, buttonId = null) {
+    if (!button) return;
+
+    // Generate ID from button if not provided
+    const id = buttonId || button.dataset.loadingId || button.id || null;
+
+    if (loading) {
+        button.dataset.originalText = button.textContent;
+        button.innerHTML = '<span class="btn-spinner"></span>Processing...';
+        button.classList.add('btn-loading');
+        button.disabled = true;
+        if (id) loadingButtons[id] = originalText || button.dataset.originalText;
+    } else {
+        const text = originalText || button.dataset.originalText || 'Submit';
+        button.textContent = text;
+        button.classList.remove('btn-loading');
+        button.disabled = false;
+        if (id) delete loadingButtons[id];
+    }
+}
+
+// Check if a button should be loading (call after render)
+function isButtonLoading(buttonId) {
+    return buttonId in loadingButtons;
+}
+
+// Apply loading state to a button if it should be loading
+function applyLoadingState(button, buttonId) {
+    if (loadingButtons[buttonId]) {
+        button.innerHTML = '<span class="btn-spinner"></span>Processing...';
+        button.classList.add('btn-loading');
+        button.disabled = true;
+    }
+}
+
 // Constants
 const PRICE_PRECISION = ethers.BigNumber.from('1000000000000000000'); // 1e18
 const PERCENTAGE_PRECISION = ethers.BigNumber.from('10000000'); // 1e7
@@ -676,6 +715,37 @@ function isValidBounty(bounty) {
     if (!bounty || bounty.claimed || bounty.recalled || bounty.maxRounds === 0) return false;
     const tokenInfo = getBountyTokenInfo(bounty.bountyToken);
     return tokenInfo.symbol === 'ETH' || tokenInfo.symbol === 'OP';
+}
+
+// Check if bounty is claimable (start time has passed)
+// Returns { claimable: bool, timeUntilClaimable: number (seconds or blocks), timeType: bool }
+function isBountyClaimable(bounty, currentTimestamp, currentBlockNumber) {
+    if (!bounty) return { claimable: false, timeUntilClaimable: 0, timeType: true };
+
+    const start = ethers.BigNumber.from(bounty.start);
+    const currentTime = bounty.timeType
+        ? ethers.BigNumber.from(currentTimestamp)
+        : ethers.BigNumber.from(currentBlockNumber || 0);
+
+    if (currentTime.gte(start)) {
+        return { claimable: true, timeUntilClaimable: 0, timeType: bounty.timeType };
+    } else {
+        const diff = start.sub(currentTime).toNumber();
+        return { claimable: false, timeUntilClaimable: diff, timeType: bounty.timeType };
+    }
+}
+
+// Format seconds into human-readable countdown string
+function formatCountdown(seconds) {
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+    }
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
 }
 
 // Format bounty amount for display
@@ -1969,6 +2039,8 @@ async function getFreshBlockInfo(forSettle = false) {
 }
 
 async function submitDispute() {
+    const submitBtn = document.querySelector('#disputePane .submit-btn');
+
     if (!currentReport || !currentDisputeInfo || !currentDisputeSwapInfo) {
         showError('No report loaded or missing dispute info');
         return;
@@ -1997,6 +2069,8 @@ async function submitDispute() {
         showError('Please enter a valid Token 2 amount');
         return;
     }
+
+    setButtonLoading(submitBtn, true);
 
     try {
         const report = currentReport;
@@ -2114,6 +2188,8 @@ async function submitDispute() {
         if (pane) pane.style.display = 'none';
         console.log('Dispute submitted successfully!');
 
+        setButtonLoading(submitBtn, false, 'Submit Dispute');
+
         // Mark that we're doing a user-initiated refresh (to skip event-triggered duplicates)
         lastUserRefreshTime = Date.now();
 
@@ -2122,6 +2198,7 @@ async function submitDispute() {
 
     } catch (e) {
         console.error('Dispute error:', e);
+        setButtonLoading(submitBtn, false, 'Submit Dispute');
         let errorMsg = e.message;
         if (e.error && e.error.message) {
             errorMsg = e.error.message;
@@ -2134,6 +2211,8 @@ async function submitDispute() {
 }
 
 async function submitInitialReport() {
+    const submitBtn = document.querySelector('#reportPane .submit-btn');
+
     if (!currentReport) {
         showError('No report loaded');
         return;
@@ -2165,6 +2244,8 @@ async function submitInitialReport() {
         showError('Please enter a valid Token 2 amount');
         return;
     }
+
+    setButtonLoading(submitBtn, true);
 
     try {
         const report = currentReport;
@@ -2209,11 +2290,23 @@ async function submitInitialReport() {
         }
 
         // Check if there's a valid bounty - if so, submit through bounty contract
+        // Also check if bounty is claimable (start time has passed)
         const bountyData = currentReport.bountyData;
-        const hasBounty = isValidBounty(bountyData);
+        const hasValidBounty = isValidBounty(bountyData);
+
+        // Get fresh block info to check bounty claimability
+        const blockInfoForCheck = await getFreshBlockInfo();
+        const bountyClaimable = hasValidBounty
+            ? isBountyClaimable(bountyData, blockInfoForCheck.timestamp, blockInfoForCheck.blockNumber)
+            : { claimable: false };
+
+        // Only route through bounty contract if bounty exists AND is claimable
+        const hasBounty = hasValidBounty && bountyClaimable.claimable;
         const targetContract = hasBounty ? getBountyContractAddress() : BATCHER_ADDRESS;
 
-        console.log('Has valid bounty:', hasBounty);
+        console.log('Has valid bounty:', hasValidBounty);
+        console.log('Bounty claimable:', bountyClaimable);
+        console.log('Routing through bounty contract:', hasBounty);
         console.log('Target contract:', targetContract);
 
         // Check both allowances in parallel
@@ -2363,6 +2456,8 @@ async function submitInitialReport() {
         if (pane) pane.style.display = 'none';
         console.log('Initial report submitted successfully!');
 
+        setButtonLoading(submitBtn, false, 'Submit Report');
+
         // Mark that we're doing a user-initiated refresh (to skip event-triggered duplicates)
         lastUserRefreshTime = Date.now();
 
@@ -2370,6 +2465,7 @@ async function submitInitialReport() {
         await searchReport(true);
     } catch (e) {
         console.error('Submit error:', e);
+        setButtonLoading(submitBtn, false, 'Submit Report');
         // Try to extract more meaningful error
         let errorMsg = e.message;
         if (e.error && e.error.message) {
@@ -2382,12 +2478,14 @@ async function submitInitialReport() {
     }
 }
 
-async function settleReport(reportId) {
+async function settleReport(reportId, btn = null) {
     // Connect wallet if not connected
     if (!signer) {
         const connected = await connectWallet();
         if (!connected) return;
     }
+
+    setButtonLoading(btn, true);
 
     try {
         console.log('=== Settle Report Debug ===');
@@ -2423,6 +2521,7 @@ async function settleReport(reportId) {
         } catch (gasError) {
             console.error('Gas estimation failed:', gasError);
             if (gasError.reason) {
+                setButtonLoading(btn, false, 'Settle');
                 showError('Cannot settle: ' + gasError.reason);
                 return;
             }
@@ -2443,6 +2542,8 @@ async function settleReport(reportId) {
         const receipt = await tx.wait();
         console.log('TX confirmed:', receipt);
 
+        setButtonLoading(btn, false, 'Settle');
+
         // Mark that we're doing a user-initiated refresh (to skip event-triggered duplicates)
         lastUserRefreshTime = Date.now();
 
@@ -2452,6 +2553,7 @@ async function settleReport(reportId) {
 
     } catch (e) {
         console.error('Settle error:', e);
+        setButtonLoading(btn, false, 'Settle');
         let errorMsg = e.message;
         if (e.error && e.error.message) {
             errorMsg = e.error.message;
@@ -2711,7 +2813,7 @@ function renderReport(report, token1Info, token2Info, bountyData = null) {
                 <div class="status-card">
                     <div class="badge-section">
                         <span class="settled-badge">Ready to Settle</span>
-                        <button class="report-action-btn" onclick="settleReport(${report.reportId})">Settle</button>
+                        <button class="report-action-btn" onclick="settleReport(${report.reportId}, this)">Settle</button>
                     </div>
                     <div class="metrics-section">${netRewardHtml}</div>
                 </div>`;
@@ -2743,23 +2845,55 @@ function renderReport(report, token1Info, token2Info, bountyData = null) {
         const hasBounty = isValidBounty(bountyData);
         if (hasBounty) {
             const now = Math.floor(Date.now() / 1000);
-            const bountyAmt = calcCurrentBounty(bountyData, now, getEstimatedBlockNumber());
+            const currentBlock = getEstimatedBlockNumber();
+            const bountyAmt = calcCurrentBounty(bountyData, now, currentBlock);
             const tokenInfo = getBountyTokenInfo(bountyData.bountyToken);
+            const claimableInfo = isBountyClaimable(bountyData, now, currentBlock);
 
-            // Add bounty to reward USD
-            if (tokenInfo.symbol === 'ETH' && ethPrice) {
-                const bountyEth = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
-                rewardUsd += bountyEth * ethPrice;
-            } else if (tokenInfo.symbol === 'OP' && opPrice) {
-                const bountyOp = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
-                rewardUsd += bountyOp * opPrice;
+            // Store claimability info on currentReport for other parts of UI
+            currentReport.bountyClaimable = claimableInfo;
+
+            if (claimableInfo.claimable) {
+                // Bounty is claimable - show amount
+                // Add bounty to reward USD
+                if (tokenInfo.symbol === 'ETH' && ethPrice) {
+                    const bountyEth = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
+                    rewardUsd += bountyEth * ethPrice;
+                } else if (tokenInfo.symbol === 'OP' && opPrice) {
+                    const bountyOp = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
+                    rewardUsd += bountyOp * opPrice;
+                }
+
+                bountyHtml = `
+                    <div class="status-metric">
+                        <span class="metric-label">Bounty</span>
+                        <span id="singleBountyDisplay" class="metric-value bounty">+${formatBountyAmount(bountyAmt, tokenInfo)}</span>
+                    </div>`;
+            } else {
+                // Bounty not yet claimable - show countdown
+                const timeUntil = claimableInfo.timeUntilClaimable;
+                let countdownStr;
+                if (claimableInfo.timeType) {
+                    // timeType true = seconds
+                    countdownStr = formatCountdown(timeUntil);
+                } else {
+                    // timeType false = blocks (estimate ~2 sec per block on OP)
+                    const estSeconds = timeUntil * 2;
+                    countdownStr = `~${formatCountdown(estSeconds)} (${timeUntil} blocks)`;
+                }
+
+                bountyHtml = `
+                    <div class="status-metric">
+                        <span class="metric-label">Bounty</span>
+                        <span id="singleBountyDisplay" class="metric-value pending" style="font-size: 0.75rem;">
+                            Available in <span id="bountyCountdown">${countdownStr}</span>
+                        </span>
+                    </div>
+                    <div id="bountyStartingAt" class="status-metric">
+                        <span class="metric-label">Starting At</span>
+                        <span class="metric-value neutral">${formatBountyAmount(bountyData.bountyStartAmt, tokenInfo)}</span>
+                    </div>`;
             }
-
-            bountyHtml = `
-                <div class="status-metric">
-                    <span class="metric-label">Bounty</span>
-                    <span id="singleBountyDisplay" class="metric-value bounty">+${formatBountyAmount(bountyAmt, tokenInfo)}</span>
-                </div>`;
         }
 
         // Store base reward (without bounty) for live updates
@@ -2811,9 +2945,24 @@ function renderReport(report, token1Info, token2Info, bountyData = null) {
             ? (settlementTimeVal >= 60 ? `${(settlementTimeVal / 60).toFixed(1)} min` : `${settlementTimeVal} sec`)
             : `${settlementTimeVal} blocks`;
 
+        // Check if bounty is claimable for routing note
+        let bountyRouteNote = '';
+        if (isValidBounty(bountyData)) {
+            const now = Math.floor(Date.now() / 1000);
+            const currentBlock = getEstimatedBlockNumber();
+            const claimableInfo = isBountyClaimable(bountyData, now, currentBlock);
+
+            if (!claimableInfo.claimable) {
+                bountyRouteNote = `
+                <div id="bountyRouteWarning" class="pane-note warning">
+                    Bounty not yet available. Submitting now will route through standard batcher (no bounty reward).
+                </div>`;
+            }
+        }
+
         reportPaneHtml = `
         <div id="reportPane" class="report-pane" style="display: none;">
-            <div class="pane-header">Submit Initial Report</div>
+            <div class="pane-header">Submit Initial Report</div>${bountyRouteNote}
             <div class="pane-row">
                 <div class="pane-label">${token1Info.symbol} Amount (fixed)</div>
                 <div class="pane-value">${formatTokenAmount(report.exactToken1Report, token1Info.decimals, token1Info.symbol)}</div>
@@ -3214,6 +3363,23 @@ function hideError() {
     document.getElementById('errorBox').style.display = 'none';
 }
 
+function showOpGrantError(msg) {
+    const box = document.getElementById('opgrantErrorBox');
+    if (box) {
+        box.textContent = msg;
+        box.style.display = 'block';
+        // Auto-hide after 5 seconds
+        setTimeout(() => {
+            box.style.display = 'none';
+        }, 5000);
+    }
+}
+
+function hideOpGrantError() {
+    const box = document.getElementById('opgrantErrorBox');
+    if (box) box.style.display = 'none';
+}
+
 function showWarning(msg) {
     const box = document.getElementById('warningBox');
     box.textContent = msg;
@@ -3585,7 +3751,7 @@ async function loadOverview(autoDetect = false) {
             // Only show settlement time row if not already settleable
             const settleRow = statusClass === 'settleable' ? '' : `
                 <div class="report-box-row">
-                    <span class="report-box-label">Settle</span>
+                    <span class="report-box-label">Settlement time</span>
                     <span class="report-box-value">${settlementStr}</span>
                 </div>`;
 
@@ -3653,31 +3819,64 @@ function updateSingleBountyDisplay() {
 
     const bounty = currentReport.bountyData;
     const now = Math.floor(Date.now() / 1000);
-    const bountyAmt = calcCurrentBounty(bounty, now, getEstimatedBlockNumber());
+    const currentBlock = getEstimatedBlockNumber();
     const tokenInfo = getBountyTokenInfo(bounty.bountyToken);
+    const claimableInfo = isBountyClaimable(bounty, now, currentBlock);
 
-    // Update bounty display
+    // Update claimability on currentReport
+    currentReport.bountyClaimable = claimableInfo;
+
     const singleBountyEl = document.getElementById('singleBountyDisplay');
-    if (singleBountyEl) {
-        singleBountyEl.textContent = `+${formatBountyAmount(bountyAmt, tokenInfo)}`;
-    }
+    const bountyCountdownEl = document.getElementById('bountyCountdown');
 
-    // Update net reward display (base reward + bounty value)
-    const netRewardEl = document.getElementById('singleNetRewardDisplay');
-    if (netRewardEl && currentReport.baseRewardUsd !== undefined) {
-        let bountyUsd = 0;
-        if (tokenInfo.symbol === 'ETH' && ethPrice) {
-            const bountyEth = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
-            bountyUsd = bountyEth * ethPrice;
-        } else if (tokenInfo.symbol === 'OP' && opPrice) {
-            const bountyOp = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
-            bountyUsd = bountyOp * opPrice;
+    if (claimableInfo.claimable) {
+        // Bounty is claimable - show escalating amount
+        const bountyAmt = calcCurrentBounty(bounty, now, currentBlock);
+
+        if (singleBountyEl) {
+            singleBountyEl.textContent = `+${formatBountyAmount(bountyAmt, tokenInfo)}`;
+            singleBountyEl.className = 'metric-value bounty';
+            singleBountyEl.style.fontSize = '';
         }
 
-        const totalRewardUsd = currentReport.baseRewardUsd + bountyUsd;
-        const rewardSign = totalRewardUsd >= 0 ? '+' : '';
-        netRewardEl.textContent = `${rewardSign}$${Math.abs(totalRewardUsd).toFixed(4)}`;
-        netRewardEl.className = `metric-value ${totalRewardUsd >= 0 ? 'positive' : 'negative'}`;
+        // Hide the route warning if it exists (bounty is now claimable)
+        const routeWarning = document.getElementById('bountyRouteWarning');
+        if (routeWarning) routeWarning.style.display = 'none';
+
+        // Hide the "Starting At" display (only relevant before bounty is claimable)
+        const startingAtEl = document.getElementById('bountyStartingAt');
+        if (startingAtEl) startingAtEl.style.display = 'none';
+
+        // Update net reward display (base reward + bounty value)
+        const netRewardEl = document.getElementById('singleNetRewardDisplay');
+        if (netRewardEl && currentReport.baseRewardUsd !== undefined) {
+            let bountyUsd = 0;
+            if (tokenInfo.symbol === 'ETH' && ethPrice) {
+                const bountyEth = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
+                bountyUsd = bountyEth * ethPrice;
+            } else if (tokenInfo.symbol === 'OP' && opPrice) {
+                const bountyOp = parseFloat(ethers.utils.formatUnits(bountyAmt, 18));
+                bountyUsd = bountyOp * opPrice;
+            }
+
+            const totalRewardUsd = currentReport.baseRewardUsd + bountyUsd;
+            const rewardSign = totalRewardUsd >= 0 ? '+' : '';
+            netRewardEl.textContent = `${rewardSign}$${Math.abs(totalRewardUsd).toFixed(4)}`;
+            netRewardEl.className = `metric-value ${totalRewardUsd >= 0 ? 'positive' : 'negative'}`;
+        }
+    } else {
+        // Bounty not yet claimable - update countdown
+        if (bountyCountdownEl) {
+            const timeUntil = claimableInfo.timeUntilClaimable;
+            let countdownStr;
+            if (claimableInfo.timeType) {
+                countdownStr = formatCountdown(timeUntil);
+            } else {
+                const estSeconds = timeUntil * 2;
+                countdownStr = `~${formatCountdown(estSeconds)} (${timeUntil} blocks)`;
+            }
+            bountyCountdownEl.textContent = countdownStr;
+        }
     }
 }
 
@@ -4066,6 +4265,8 @@ async function refreshWrapBalances() {
 
 // Wrap ETH to WETH
 async function wrapEth() {
+    const wrapBtn = document.querySelector('.wrap-btn.wrap');
+
     if (!signer) {
         const connected = await connectWallet();
         if (!connected) return;
@@ -4076,6 +4277,8 @@ async function wrapEth() {
         showError('Please enter a valid ETH amount');
         return;
     }
+
+    setButtonLoading(wrapBtn, true);
 
     try {
         const amount = ethers.utils.parseEther(amountStr);
@@ -4088,16 +4291,20 @@ async function wrapEth() {
         await tx.wait();
         console.log('Wrap complete');
 
+        setButtonLoading(wrapBtn, false, 'Wrap');
         document.getElementById('wrapAmount').value = '';
         refreshWrapBalances();
     } catch (e) {
         console.error('Wrap error:', e);
+        setButtonLoading(wrapBtn, false, 'Wrap');
         showError('Wrap failed: ' + e.message);
     }
 }
 
 // Unwrap WETH to ETH
 async function unwrapWeth() {
+    const unwrapBtn = document.querySelector('.wrap-btn.unwrap');
+
     if (!signer) {
         const connected = await connectWallet();
         if (!connected) return;
@@ -4108,6 +4315,8 @@ async function unwrapWeth() {
         showError('Please enter a valid WETH amount');
         return;
     }
+
+    setButtonLoading(unwrapBtn, true);
 
     try {
         const amount = ethers.utils.parseEther(amountStr);
@@ -4120,10 +4329,12 @@ async function unwrapWeth() {
         await tx.wait();
         console.log('Unwrap complete');
 
+        setButtonLoading(unwrapBtn, false, 'Unwrap');
         document.getElementById('unwrapAmount').value = '';
         refreshWrapBalances();
     } catch (e) {
         console.error('Unwrap error:', e);
+        setButtonLoading(unwrapBtn, false, 'Unwrap');
         showError('Unwrap failed: ' + e.message);
     }
 }
@@ -4211,8 +4422,6 @@ function updateOpGrantTabVisibility() {
 
 // Load OP Grant game data
 let opGrantLoading = false;
-let opGrantProviderIndex = 0;
-
 async function loadOpGrantGames() {
     if (!isOpGrantAvailable()) return;
     if (opGrantLoading) return; // Prevent overlapping calls
@@ -4227,25 +4436,74 @@ async function loadOpGrantGames() {
 
     opGrantLoading = true;
     try {
-        // Rotate through providers to avoid hammering one RPC
-        opGrantProviderIndex = (opGrantProviderIndex + 1) % providers.length;
-        const provider = providers[opGrantProviderIndex];
-        const faucetContract = new ethers.Contract(OP_GRANT_FAUCET_ADDRESS, OP_GRANT_FAUCET_ABI, provider);
+        // Race all providers - first successful response wins
+        const rpcEndpoints = getRpcEndpoints();
+
+        const racePromise = new Promise((resolve, reject) => {
+            let resolved = false;
+            let failCount = 0;
+
+            providers.forEach((provider, idx) => {
+                const faucetContract = new ethers.Contract(OP_GRANT_FAUCET_ADDRESS, OP_GRANT_FAUCET_ABI, provider);
+                const startTime = performance.now();
+
+                // Fetch all game data for this provider
+                const gameDataPromises = [];
+                for (let i = 0; i < 4; i++) {
+                    gameDataPromises.push(Promise.all([
+                        faucetContract.games(i),
+                        faucetContract.lastGameTime(i),
+                        faucetContract.gameTimer(i),
+                        faucetContract.bountyForGame(i),
+                        faucetContract.lastReportId(i)
+                    ]));
+                }
+
+                Promise.all(gameDataPromises)
+                    .then(gameData => {
+                        // Also fetch bounty params
+                        const bountyIndices = gameData.map(d => d[3]);
+                        return Promise.all([
+                            gameData,
+                            Promise.all(bountyIndices.map(bIdx => faucetContract.bountyParams(bIdx)))
+                        ]);
+                    })
+                    .then(([gameData, bountyParams]) => {
+                        if (!resolved) {
+                            resolved = true;
+                            const elapsed = (performance.now() - startTime).toFixed(0);
+                            const rpcName = rpcEndpoints[idx]?.split('//')[1]?.split('/')[0] || `RPC ${idx}`;
+                            console.log(`OP Grant games: ${rpcName} won race in ${elapsed}ms`);
+                            resolve({ gameData, bountyParams });
+                        }
+                    })
+                    .catch(err => {
+                        const rpcName = rpcEndpoints[idx]?.split('//')[1]?.split('/')[0] || `RPC ${idx}`;
+                        console.warn(`OP Grant games: ${rpcName} failed:`, err.message);
+                        failCount++;
+                        if (failCount === providers.length && !resolved) {
+                            reject(new Error('All RPCs failed'));
+                        }
+                    });
+            });
+
+            // Timeout after 15 seconds
+            setTimeout(() => {
+                if (!resolved) {
+                    reject(new Error('All RPCs timed out'));
+                }
+            }, 15000);
+        });
+
+        const { gameData: allGameData, bountyParams: allBountyParams } = await racePromise;
 
         const games = [];
         const now = Math.floor(Date.now() / 1000);
 
-        // Load all game data including lastReportId
+        // Build games array
         for (let i = 0; i < 4; i++) {
-            const [gameParams, lastTime, timer, bountyIdx, lastReport] = await Promise.all([
-                faucetContract.games(i),
-                faucetContract.lastGameTime(i),
-                faucetContract.gameTimer(i),
-                faucetContract.bountyForGame(i),
-                faucetContract.lastReportId(i)
-            ]);
-
-            const bountyParamsData = await faucetContract.bountyParams(bountyIdx);
+            const [gameParams, lastTime, timer, bountyIdx, lastReport] = allGameData[i];
+            const bountyParamsData = allBountyParams[i];
 
             const lastTimeNum = lastTime.toNumber();
             const timerNum = timer.toNumber();
@@ -4272,24 +4530,46 @@ async function loadOpGrantGames() {
 
         // Fetch report and bounty data for games with active reports
         const bountyAddr = getBountyContractAddress();
-        const bountyContractInstance = bountyAddr ? new ethers.Contract(bountyAddr, BOUNTY_ABI, provider) : null;
-
         const activeReportIds = games.filter(g => g.activeReportId).map(g => g.activeReportId);
 
         if (activeReportIds.length > 0) {
-            // Fetch reports using rotated provider
-            const dataProvider = new ethers.Contract(get_DATA_PROVIDER_ADDRESS(), DATA_PROVIDER_ABI, provider);
-            const reportArrays = await Promise.all(
-                activeReportIds.map(rid => dataProvider['getData(uint256)'](rid))
-            );
+            // Race all providers for report data
+            const reportRace = new Promise((resolve, reject) => {
+                let resolved = false;
+                let failCount = 0;
+
+                providers.forEach((provider, idx) => {
+                    const dataProvider = new ethers.Contract(get_DATA_PROVIDER_ADDRESS(), DATA_PROVIDER_ABI, provider);
+                    Promise.all(activeReportIds.map(rid => dataProvider['getData(uint256)'](rid)))
+                        .then(reportArrays => {
+                            if (!resolved) {
+                                resolved = true;
+                                const rpcName = rpcEndpoints[idx]?.split('//')[1]?.split('/')[0] || `RPC ${idx}`;
+                                console.log(`OP Grant reports: ${rpcName} won race`);
+                                resolve(reportArrays);
+                            }
+                        })
+                        .catch(err => {
+                            const rpcName = rpcEndpoints[idx]?.split('//')[1]?.split('/')[0] || `RPC ${idx}`;
+                            console.warn(`OP Grant reports: ${rpcName} failed:`, err.message);
+                            failCount++;
+                            if (failCount === providers.length && !resolved) {
+                                reject(new Error('All RPCs failed for reports'));
+                            }
+                        });
+                });
+
+                setTimeout(() => { if (!resolved) reject(new Error('Report fetch timed out')); }, 10000);
+            });
+
+            const reportArrays = await reportRace;
 
             // Match reports back to games
             let idx = 0;
             for (const game of games) {
                 if (game.activeReportId) {
                     const reportArray = reportArrays[idx++];
-                    const report = reportArray[0]; // getData returns array
-                    // Check if report has initial reporter (currentReporter != zero = has report)
+                    const report = reportArray[0];
                     const hasInitialReport = report.currentReporter !== ethers.constants.AddressZero;
                     const isSettled = report.isDistributed;
 
@@ -4297,17 +4577,44 @@ async function loadOpGrantGames() {
                         game.activeReport = report;
                         game.hasInitialReport = hasInitialReport;
                     } else {
-                        // Report is settled, clear active state
                         game.activeReportId = null;
                     }
                 }
             }
 
-            // Fetch bounties for still-active reports
+            // Race all providers for bounty data
             const stillActiveIds = games.filter(g => g.activeReportId).map(g => g.activeReportId);
-            if (bountyContractInstance && stillActiveIds.length > 0) {
+            if (bountyAddr && stillActiveIds.length > 0) {
                 try {
-                    const bounties = await bountyContractInstance.getBounties(stillActiveIds);
+                    const bountyRace = new Promise((resolve, reject) => {
+                        let resolved = false;
+                        let failCount = 0;
+
+                        providers.forEach((provider, idx) => {
+                            const bountyContract = new ethers.Contract(bountyAddr, BOUNTY_ABI, provider);
+                            bountyContract.getBounties(stillActiveIds)
+                                .then(bounties => {
+                                    if (!resolved) {
+                                        resolved = true;
+                                        const rpcName = rpcEndpoints[idx]?.split('//')[1]?.split('/')[0] || `RPC ${idx}`;
+                                        console.log(`OP Grant bounties: ${rpcName} won race`);
+                                        resolve(bounties);
+                                    }
+                                })
+                                .catch(err => {
+                                    const rpcName = rpcEndpoints[idx]?.split('//')[1]?.split('/')[0] || `RPC ${idx}`;
+                                    console.warn(`OP Grant bounties: ${rpcName} failed:`, err.message);
+                                    failCount++;
+                                    if (failCount === providers.length && !resolved) {
+                                        reject(new Error('All RPCs failed for bounties'));
+                                    }
+                                });
+                        });
+
+                        setTimeout(() => { if (!resolved) reject(new Error('Bounty fetch timed out')); }, 10000);
+                    });
+
+                    const bounties = await bountyRace;
                     let bidx = 0;
                     for (const game of games) {
                         if (game.activeReportId) {
@@ -4325,6 +4632,16 @@ async function loadOpGrantGames() {
 
         opGrantGames = games;
         renderOpGrantGames();
+
+        // Re-apply loading states to buttons after render
+        document.querySelectorAll('[data-loading-id]').forEach(btn => {
+            const id = btn.dataset.loadingId;
+            if (loadingButtons[id]) {
+                btn.innerHTML = '<span class="btn-spinner"></span>Processing...';
+                btn.classList.add('btn-loading');
+                btn.disabled = true;
+            }
+        });
 
     } catch (e) {
         console.error('Failed to load OP Grant games:', e);
@@ -4566,7 +4883,8 @@ function renderOpGrantGames() {
 
                 <div class="game-actions">
                     <button class="game-start-btn"
-                            onclick="startOpGrantGame(${game.id})"
+                            data-loading-id="opgrant-${game.id}"
+                            onclick="startOpGrantGame(${game.id}, this)"
                             ${isReady ? '' : 'disabled'}>
                         ${isReady ? 'Start Game' : 'Waiting...'}
                     </button>
@@ -4584,7 +4902,7 @@ function goToOpGrantReport(reportId) {
 }
 
 // Start OP Grant game
-async function startOpGrantGame(gameId) {
+async function startOpGrantGame(gameId, btn = null) {
     if (!signer) {
         const connected = await connectWallet();
         if (!connected) return;
@@ -4592,17 +4910,20 @@ async function startOpGrantGame(gameId) {
 
     // Check network
     if (currentNetworkId !== 'optimism') {
-        showError('Please switch to Optimism network');
+        showOpGrantError('Please switch to Optimism network');
         return;
     }
 
-    try {
-        const game = opGrantGames[gameId];
-        if (!game || !game.canStart) {
-            showError('Game is not available yet');
-            return;
-        }
+    const game = opGrantGames[gameId];
+    if (!game || !game.canStart) {
+        showOpGrantError('Game is not available yet');
+        return;
+    }
 
+    const buttonId = `opgrant-${gameId}`;
+    setButtonLoading(btn, true, 'Start Game', buttonId);
+
+    try {
         console.log(`Starting OP Grant game ${gameId}...`);
 
         const faucetContract = new ethers.Contract(OP_GRANT_FAUCET_ADDRESS, OP_GRANT_FAUCET_ABI, signer);
@@ -4624,6 +4945,8 @@ async function startOpGrantGame(gameId) {
         const receipt = await tx.wait();
         console.log('Game started!', receipt);
 
+        setButtonLoading(btn, false, 'Start Game', buttonId);
+
         // Parse event to get reportId
         const gameCreatedEvent = receipt.events?.find(e => e.event === 'GameCreated');
         if (gameCreatedEvent) {
@@ -4641,10 +4964,13 @@ async function startOpGrantGame(gameId) {
 
     } catch (e) {
         console.error('Failed to start game:', e);
-        if (e.message.includes('too early')) {
-            showError('Game is still on cooldown. Please wait.');
+        setButtonLoading(btn, false, 'Start Game', buttonId);
+        if (e.message.includes('user rejected')) {
+            showOpGrantError('Transaction rejected');
+        } else if (e.message.includes('too early')) {
+            showOpGrantError('Game is still on cooldown. Please wait.');
         } else {
-            showError('Failed to start game: ' + (e.reason || e.message));
+            showOpGrantError('Failed to start game: ' + (e.reason || e.message));
         }
     }
 }
@@ -4670,11 +4996,11 @@ function updateOpGrantCountdowns() {
             countdown.textContent = isReady ? '✓ Ready to Start' : formatTimeRemaining(timeRemaining);
             countdown.classList.toggle('ready', isReady);
 
-            // Update button state
+            // Update button state (skip if button is in loading state)
             const card = countdown.closest('.game-card');
             if (card) {
                 const btn = card.querySelector('.game-start-btn');
-                if (btn) {
+                if (btn && !btn.classList.contains('btn-loading')) {
                     btn.disabled = !isReady;
                     btn.textContent = isReady ? 'Start Game' : 'Waiting...';
                 }

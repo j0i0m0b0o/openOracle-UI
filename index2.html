@@ -623,6 +623,26 @@
             border-bottom: 1px solid rgba(0, 255, 136, 0.2);
         }
 
+        .pane-note {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            padding: 10px 14px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+        }
+
+        .pane-note.warning {
+            background: rgba(255, 184, 0, 0.1);
+            border: 1px solid rgba(255, 184, 0, 0.3);
+            color: var(--accent-amber);
+        }
+
+        .pane-note.success {
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            color: var(--accent-green);
+        }
+
         .pane-row {
             display: flex;
             justify-content: space-between;
@@ -705,6 +725,29 @@
 
         .submit-btn:hover {
             background: var(--accent-green-dim);
+        }
+
+        /* Button loading state */
+        .btn-loading {
+            pointer-events: none;
+            cursor: wait;
+            opacity: 0.8;
+        }
+
+        .btn-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid transparent;
+            border-top-color: currentColor;
+            border-radius: 50%;
+            animation: btn-spin 0.8s linear infinite;
+            display: inline-block;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes btn-spin {
+            to { transform: rotate(360deg); }
         }
 
         .cancel-btn {
@@ -1156,6 +1199,10 @@
 
         .status-metric .metric-value.neutral {
             color: var(--text-secondary);
+        }
+
+        .status-metric .metric-value.pending {
+            color: var(--accent-amber);
         }
 
         /* Report action button - more prominent */
@@ -1771,7 +1818,7 @@
         <header class="header">
             <div class="logo">
                 <div class="logo-text">open<span>Oracle</span></div>
-                <a href="https://docs.openoracle.info" target="_blank" class="docs-link">Docs ↗</a>
+                <a href="https://openprices.gitbook.io/openoracle-ui" target="_blank" class="docs-link">Docs ↗</a>
             </div>
             <div class="network-switcher">
                 <button class="network-btn base" onclick="switchNetwork('base')" data-network="base" style="display: none;">
@@ -1910,6 +1957,7 @@
                 <h2 class="opgrant-title">OP Grant Rewards</h2>
                 <p class="opgrant-subtitle">Earn OP tokens by reporting prices. Start a game and submit the first report to claim the bounty.</p>
             </div>
+            <div id="opgrantErrorBox" class="error" style="display: none;"></div>
             <div class="opgrant-grid" id="opgrantGrid">
                 <!-- Games will be rendered here by JS -->
                 <div class="opgrant-loading" id="opgrantLoading">Loading games.</div>
