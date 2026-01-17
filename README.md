@@ -43,7 +43,7 @@ Loads ethers.js from jsdelivr CDN and fonts from Google Fonts. Easiest setup.
 
 ```bash
 python3 server2.py
-# Open: http://127.0.0.1:8080/index2.html
+# Open: http://127.0.0.1:8080/index.html
 ```
 
 **External calls:** jsdelivr.net (ethers.js), fonts.googleapis.com, fonts.gstatic.com
